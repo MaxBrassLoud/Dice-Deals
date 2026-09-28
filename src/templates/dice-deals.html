@@ -16,7 +16,8 @@
         body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; padding:20px; }
 
         /* Header */
-        .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:12px; flex-wrap:wrap; }
+        .header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:12px; flex-wrap:wrap; animation:headerIn .4s ease both; }
+        @keyframes headerIn { from { transform:translateY(-10px); opacity:0; } to { transform:none; opacity:1; } }
         .header h1 { font-size:20px; font-weight:800; display:flex; align-items:center; gap:8px; }
         .header-right { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
         .room-badge { display:flex; align-items:center; gap:5px; padding:6px 12px; background:rgba(63,185,80,.1); border:1px solid rgba(63,185,80,.3); border-radius:var(--r); font-size:13px; font-weight:700; color:var(--accent2); font-family:'JetBrains Mono',monospace; letter-spacing:3px; }
@@ -64,7 +65,7 @@
         .field-icon { font-size:clamp(8px,1.6cqi,18px); line-height:1; }
         .field-buildings { font-size:clamp(5px,.85cqi,10px); line-height:1; margin-top:1px; letter-spacing:0; }
         .tokens-row { display:flex; flex-wrap:wrap; gap:2px; justify-content:center; align-items:center; padding:1px 2px 2px; margin-top:auto; width:100%; }
-        .token { width:clamp(6px,1.1cqi,14px); height:clamp(6px,1.1cqi,14px); border-radius:50%; border:1.5px solid rgba(255,255,255,.6); flex-shrink:0; transition:transform .25s, box-shadow .25s; box-shadow:0 1px 3px rgba(0,0,0,.5); }
+        .token { width:clamp(8px,1.3cqi,16px); height:clamp(8px,1.3cqi,16px); border-radius:50%; border:1.5px solid rgba(255,255,255,.6); flex-shrink:0; transition:transform .25s, box-shadow .25s; box-shadow:0 1px 3px rgba(0,0,0,.5); overflow:hidden; }
         .token.highlight { transform:scale(1.4); box-shadow:0 0 0 2px white, 0 0 8px currentColor; }
         .owner-dot { position:absolute; bottom:2px; right:2px; width:clamp(4px,.65cqi,8px); height:clamp(4px,.65cqi,8px); border-radius:50%; border:1px solid rgba(255,255,255,.4); box-shadow:0 1px 3px rgba(0,0,0,.5); }
         .field.center-area { grid-column:2/11; grid-row:2/11; display:flex; align-items:center; justify-content:center; background:linear-gradient(145deg,#0a0e17,#141a26); border-radius:6px; border-color:rgba(88,166,255,.15); }
@@ -73,7 +74,7 @@
         .center-logo .sub { font-size:clamp(8px,1.2cqi,14px); color:var(--text2); margin-top:6px; }
         .center-logo .player-pips { display:flex; flex-wrap:wrap; gap:4px; justify-content:center; margin-top:10px; }
         .center-pip { display:flex; align-items:center; gap:4px; background:var(--bg3); border:1px solid var(--border); border-radius:20px; padding:3px 8px; font-size:clamp(7px,1cqi,12px); font-weight:600; }
-        .center-pip .cpip-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+        .center-pip .cpip-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; line-height:1; }
 
         /* Sidebar */
         .sidebar { display:flex; flex-direction:column; gap:12px; }
@@ -101,14 +102,15 @@
         .player-card:last-child { margin-bottom:0; }
         .player-card.active { border-color:var(--warning); background:rgba(227,179,65,.05); }
         .player-card.bankrupt { opacity:.35; }
-        .player-avatar { width:30px; height:30px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:11px; flex-shrink:0; color:white; }
+        .player-avatar { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; flex-shrink:0; color:white; }
         .player-name { font-size:12px; font-weight:600; }
         .player-money { font-size:11px; color:var(--accent2); font-weight:600; }
         .player-props { font-size:10px; color:var(--text2); }
         .turn-badge { margin-left:auto; font-size:9px; font-weight:700; color:var(--warning); border:1px solid var(--warning); border-radius:4px; padding:2px 5px; white-space:nowrap; }
 
         /* Status / Dice */
-        .status-box { background:var(--bg3); border-radius:var(--r); padding:10px 12px; font-size:13px; line-height:1.5; min-height:48px; border-left:3px solid var(--accent); transition:border-color .3s; }
+        .status-box { background:var(--bg3); border-radius:var(--r); padding:12px 14px; font-size:13px; line-height:1.5; min-height:48px; border-left:3px solid var(--accent); transition:border-color .3s, background .3s; }
+        .status-box:empty::before { content:"Lade..."; color:var(--text2); }
         .dice-display { display:flex; align-items:center; justify-content:center; gap:10px; margin:10px 0; }
         .die { width:40px; height:40px; background:white; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:20px; color:#1a1a2e; font-weight:700; box-shadow:0 2px 8px rgba(0,0,0,.5); }
         .die.rolling { animation:rollAnim .3s ease; }
@@ -200,12 +202,12 @@
         .rank-name  { flex:1; font-weight:600; }
         .rank-val   { color:var(--text2); font-size:12px; }
 
-        /* Kicked Overlay (NEU) */
+        /* Kicked Overlay */
         .kicked-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,.94); z-index:10000; align-items:center; justify-content:center; flex-direction:column; text-align:center; backdrop-filter:blur(8px); }
         .kicked-overlay.show { display:flex; }
         .kicked-icon { font-size:80px; margin-bottom:20px; animation:shakeKick 0.5s ease; }
-        .kicked-title { font-size:32px; font-weight:800; color:var(--danger); margin-bottom:10px; }
-        .kicked-sub { color:var(--text2); margin-bottom:30px; font-size:16px; }
+        .kicked-title { font-size:28px; font-weight:800; color:var(--danger); margin-bottom:10px; }
+        .kicked-sub { color:var(--text2); margin-bottom:30px; font-size:15px; max-width:340px; line-height:1.5; }
         @keyframes shakeKick { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-10px)} 75%{transform:translateX(10px)} }
 
         /* Card Popup */
@@ -383,6 +385,21 @@
         /* No-room warning */
         .no-room { background:rgba(248,81,73,.07); border:1px solid rgba(248,81,73,.3); border-radius:var(--r); padding:12px 16px; font-size:13px; color:var(--danger); margin-bottom:14px; max-width:1260px; margin-left:auto; margin-right:auto; }
         .no-room a { color:var(--accent); }
+
+        /* Friend items in game */
+        .friend-item { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:10px; border:1px solid var(--border); background:var(--bg3); transition:border-color .15s; }
+        .friend-item:hover { border-color:var(--accent); }
+        .friend-avatar { width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:18px; flex-shrink:0; position:relative; }
+        .friend-online-dot { position:absolute; bottom:0; right:0; width:10px; height:10px; border-radius:50%; border:2px solid var(--bg3); }
+        .friend-online-dot.online { background:var(--accent2); }
+        .friend-online-dot.offline { background:#64748b; }
+        .friend-info { flex:1; min-width:0; }
+        .friend-name { font-size:13px; font-weight:600; }
+        .friend-status { font-size:10px; color:var(--text2); }
+        .friend-btn { padding:5px 10px; border-radius:6px; border:1px solid var(--border); background:var(--bg); color:var(--text); font-size:11px; font-weight:600; cursor:pointer; font-family:inherit; transition:all .15s; white-space:nowrap; }
+        .friend-btn:hover { border-color:var(--accent); color:var(--accent); }
+        .friend-btn.invite { background:rgba(59,130,246,.1); border-color:rgba(59,130,246,.3); color:var(--accent); }
+        .friend-btn.invite:hover { background:rgba(59,130,246,.2); }
     </style>
 </head>
 <body>
@@ -395,6 +412,7 @@
         {% endif %}
         <button class="hdr-btn" id="chat-btn" onclick="toggleChat()">💬 Chat <span class="nbadge" id="chat-badge" style="display:none">0</span></button>
         <button class="hdr-btn" id="trade-btn" onclick="openTrade()">🤝 Handeln <span class="nbadge" id="trade-badge" style="display:none">!</span></button>
+        <button class="hdr-btn" id="invite-btn" onclick="openInviteModal()">👥 Einladen</button>
         <a href="/" class="hdr-btn">← Dashboard</a>
     </div>
 </div>
@@ -566,6 +584,21 @@
     </div>
 </div>
 
+<!-- INVITE FRIENDS OVERLAY -->
+<div class="overlay" id="ov-invite">
+    <div class="modal" style="max-width:420px;">
+        <h2>👥 Freunde einladen</h2>
+        <p style="color:var(--text2);font-size:13px;margin-bottom:12px;">Waehle Freunde, die du in diesen Raum einladen moechtest:</p>
+        <div id="invite-friends-list" style="max-height:300px;overflow-y:auto;"></div>
+        <div id="invite-empty" style="text-align:center;padding:20px;color:var(--text2);font-size:13px;display:none;">
+            Keine Freunde gefunden. Fuege Freunde im Dashboard hinzu.
+        </div>
+        <div class="mfooter">
+            <button class="btn" onclick="closeOv('ov-invite')">Schliessen</button>
+        </div>
+    </div>
+</div>
+
 <!-- TRADE OVERLAY -->
 <div class="overlay" id="ov-trade">
     <div class="modal trade-modal" id="trade-modal"></div>
@@ -575,6 +608,11 @@
 const ME = "{{ session['username'] }}";
 const CMAP = { brown:"#795548", lightblue:"#29b6f6", pink:"#ec407a", orange:"#ff7043", red:"#ef5350", yellow:"#ffd740", green:"#66bb6a", darkblue:"#1565c0", station:"#78909c", utility:"#ab47bc", special:"transparent" };
 const PCOLORS = {
+    blue:"#58a6ff", red:"#f85149", green:"#3fb950", yellow:"#e3b341",
+    purple:"#bc8cff", orange:"#fb923c", pink:"#f778ba", teal:"#2dd4bf",
+    lime:"#a3e635", white:"#f1f5f9", brown:"#a16207", cyan:"#22d3ee"
+};
+const AVATAR_COLORS = {
     blue:"#58a6ff", red:"#f85149", green:"#3fb950", yellow:"#e3b341",
     purple:"#bc8cff", orange:"#fb923c", pink:"#f778ba", teal:"#2dd4bf",
     lime:"#a3e635", white:"#f1f5f9", brown:"#a16207", cyan:"#22d3ee"
@@ -888,8 +926,13 @@ function renderBoard(s) {
                 here.forEach(p => {
                     const t = document.createElement("div");
                     t.className = "token" + (p.username === s.current_player ? " highlight" : "");
-                    t.style.background = PCOLORS[p.color] || "#888";
+                    t.style.background = `linear-gradient(135deg,${p.avatar_color||PCOLORS[p.color]||'#888'},${(p.avatar_color||PCOLORS[p.color]||'#888')}cc)`;
                     t.title = p.username;
+                    t.textContent = p.avatar_emoji || '';
+                    t.style.fontSize = 'clamp(4px,0.8cqi,10px)';
+                    t.style.display = 'flex';
+                    t.style.alignItems = 'center';
+                    t.style.justifyContent = 'center';
                     tr.appendChild(t);
                 });
                 el.appendChild(tr);
@@ -905,7 +948,7 @@ function renderBoard(s) {
     center.className = "field center-area";
     center.style.gridColumn = "2/11";
     center.style.gridRow    = "2/11";
-    const pips = s.players.map(p => `<div class="center-pip"><div class="cpip-dot" style="background:${PCOLORS[p.color]||'#888'}"></div>${p.username.substring(0,8)}</div>`).join("");
+    const pips = s.players.map(p => `<div class="center-pip"><div class="cpip-dot" style="background:linear-gradient(135deg,${p.avatar_color||PCOLORS[p.color]||'#888'},${(p.avatar_color||PCOLORS[p.color]||'#888')}cc);font-size:10px;display:flex;align-items:center;justify-content:center;">${p.avatar_emoji||''}</div>${p.username.substring(0,8)}</div>`).join("");
     const pot = s.free_parking_pot || 0;
     const potHTML = pot > 0 ? `<div class="parking-pot">🅿️ <span>${pot.toLocaleString("de-DE")} €</span></div>` : `<div class="parking-pot empty">🅿️ Topf leer</div>`;
     center.innerHTML = `<div class="center-logo"><div class="title">Dice Deals</div><div class="sub">${s.players.length} Spieler${s.current_player ? " · " + s.current_player + " am Zug" : ""}</div>${potHTML}<div class="player-pips">${pips}</div></div>`;
@@ -948,7 +991,7 @@ function renderPlayers(s) {
         card.className=`player-card${isActive?" active":""}${p.is_bankrupt?" bankrupt":""}${isDisconn?" disconnected":""}`;
         const disconnTag = isDisconn ? '<span class="disconn-badge">Offline</span>' : '';
         const hostTag = isHostPlayer ? '<span class="host-badge">HOST</span>' : '';
-        card.innerHTML=`<div class="player-avatar" style="background:${PCOLORS[p.color]||'#888'}">${p.username.substring(0,2).toUpperCase()}</div>
+        card.innerHTML=`<div class="player-avatar" style="background:linear-gradient(135deg,${p.avatar_color||PCOLORS[p.color]||'#888'},${(p.avatar_color||PCOLORS[p.color]||'#888')}cc);font-size:16px;">${p.avatar_emoji||'🎲'}</div>
             <div style="flex:1;min-width:0;"><div class="player-name">${p.username}${p.username===ME?' <span style="font-size:10px;color:var(--text2);font-weight:400">(Du)</span>':''}${hostTag}${p.in_jail?' ⛓️':''}${disconnTag}</div>
             <div class="player-money">${p.money.toLocaleString("de-DE")} €</div>
             <div class="player-props">${pc} Grundstück${pc!==1?"e":""}${jailCards>0?` &middot; <span style="color:var(--accent2)">🃏 ${jailCards}x</span>`:""}</div></div>${isActive&&!isDisconn?'<div class="turn-badge">AM ZUG</div>':''}`;
@@ -1051,7 +1094,7 @@ function checkWinner(s) {
         sorted.forEach((p, i) => {
             const row = document.createElement("div"); row.className = "rank-row" + (i === 0 ? " rank-1" : "");
             const status = p.is_bankrupt ? "💀 Bankrott" : p.is_disconnected ? "👋 Verlassen" : `${assetVal(p).toLocaleString("de-DE")} €`;
-            row.innerHTML = `<span class="rank-medal">${medals[i] || `${i+1}.`}</span><div class="player-avatar" style="width:22px;height:22px;font-size:9px;background:${PCOLORS[p.color]||'#888'};border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:800;flex-shrink:0;">${p.username.substring(0,2).toUpperCase()}</div><span class="rank-name">${p.username}</span><span class="rank-val">${status}</span>`;
+            row.innerHTML = `<span class="rank-medal">${medals[i] || `${i+1}.`}</span><div class="player-avatar" style="width:26px;height:26px;font-size:14px;background:linear-gradient(135deg,${p.avatar_color||PCOLORS[p.color]||'#888'},${(p.avatar_color||PCOLORS[p.color]||'#888')}cc);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:800;flex-shrink:0;">${p.avatar_emoji||'🎲'}</div><span class="rank-name">${p.username}</span><span class="rank-val">${status}</span>`;
             ranking.appendChild(row);
         });
     }
@@ -1112,7 +1155,7 @@ async function respondTrade(action){ const modal=document.getElementById("trade-
 
 
 function toggleChat(){ chatOpen=!chatOpen; document.getElementById("chat-section").style.display=chatOpen?"block":"none"; document.getElementById("chat-btn").classList.toggle("active",chatOpen); if(chatOpen){ chatUnread=0; document.getElementById("chat-badge").style.display="none"; scrollChat(); } }
-function renderChat(s){ if(!s.chat_messages) return; const msgs=s.chat_messages; const container=document.getElementById("chat-msgs"); container.innerHTML=""; msgs.forEach(msg=>{ const el=document.createElement("div"); if(msg.type==="system"){ el.className="chat-msg sys-msg"; el.textContent=`🔔 ${msg.text}`; } else { el.className="chat-msg"+(msg.from===ME?" mine":""); el.innerHTML=`<span class="chat-who" style="color:${PCOLORS[msg.from_color]||'#888'}">${msg.from}</span>${escapeHtml(msg.text)}`; } container.appendChild(el); }); if(!chatOpen && msgs.length>prevChatLen){ chatUnread+=msgs.length-prevChatLen; const b=document.getElementById("chat-badge"); b.textContent=chatUnread>9?"9+":chatUnread; b.style.display="inline-flex"; } prevChatLen=msgs.length; if(chatOpen) scrollChat(); }
+function renderChat(s){ if(!s.chat_messages) return; const msgs=s.chat_messages; const container=document.getElementById("chat-msgs"); container.innerHTML=""; msgs.forEach(msg=>{ const el=document.createElement("div"); if(msg.type==="system"){ el.className="chat-msg sys-msg"; el.textContent=`🔔 ${msg.text}`; } else { el.className="chat-msg"+(msg.from===ME?" mine":""); el.innerHTML=`<span class="chat-who" style="color:${PCOLORS[msg.from_color]||'#888'}">${(s.players?.find(p=>p.username===msg.from)?.avatar_emoji||'')} ${msg.from}</span>${escapeHtml(msg.text)}`; } container.appendChild(el); }); if(!chatOpen && msgs.length>prevChatLen){ chatUnread+=msgs.length-prevChatLen; const b=document.getElementById("chat-badge"); b.textContent=chatUnread>9?"9+":chatUnread; b.style.display="inline-flex"; } prevChatLen=msgs.length; if(chatOpen) scrollChat(); }
 function scrollChat(){ const c=document.getElementById("chat-msgs"); if(c) c.scrollTop=c.scrollHeight; }
 function escapeHtml(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
 async function sendChat(){ const input=document.getElementById("chat-input"); const text=input.value.trim(); if(!text) return; input.value=""; const res=await fetch("/api/game/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})}); if(!res.ok) return; GS=await res.json(); renderChat(GS); scrollChat(); }
@@ -1319,6 +1362,71 @@ async function init() {
         showJoinModal();
     }
 
+    loadFriendsForInvite();
+}
+
+// ── Invite Friends to Game ──
+async function loadFriendsForInvite() {
+    try {
+        const res = await fetch("/api/friends/list");
+        const data = await res.json();
+        const list = document.getElementById("invite-friends-list");
+        const empty = document.getElementById("invite-empty");
+        const friends = data.friends || [];
+        if (!friends.length) {
+            list.style.display = "none";
+            empty.style.display = "block";
+            return;
+        }
+        list.style.display = "block";
+        empty.style.display = "none";
+        list.innerHTML = "";
+        friends.forEach(u => {
+            const el = document.createElement("div");
+            el.className = "friend-item";
+            el.style.cssText = "margin-bottom:6px;";
+            el.innerHTML = `
+                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);width:32px;height:32px;font-size:16px;">${u.avatar_emoji}</div>
+                <div class="friend-info">
+                    <div class="friend-name" style="font-size:13px;">${u.username}</div>
+                    <div class="friend-status">${u.online ? 'Online' : 'Offline'}</div>
+                </div>
+                <button class="friend-btn invite" style="padding:5px 12px;font-size:12px;" onclick="inviteFriendToGame('${u.id}', this)">Einladen</button>
+            `;
+            list.appendChild(el);
+        });
+    } catch(e) { console.error(e); }
+}
+
+async function inviteFriendToGame(friendId, btn) {
+    btn.disabled = true;
+    btn.textContent = "Sende...";
+    try {
+        const res = await fetch("/api/friends/invite", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ friend_id: friendId })
+        });
+        if (res.ok) {
+            btn.textContent = "Gesendet!";
+            btn.style.color = "var(--accent2)";
+            btn.style.borderColor = "rgba(34,197,94,0.3)";
+            btn.style.background = "rgba(34,197,94,0.1)";
+        } else {
+            const d = await res.json();
+            btn.textContent = d.error || "Fehler";
+            btn.style.color = "var(--danger)";
+            setTimeout(() => { btn.disabled = false; btn.textContent = "Einladen"; btn.style.color = ""; btn.style.borderColor = ""; btn.style.background = ""; }, 2000);
+        }
+    } catch(e) {
+        btn.disabled = false;
+        btn.textContent = "Einladen";
+    }
+}
+
+function openInviteModal() {
+    loadFriendsForInvite();
+    openOv("ov-invite");
 }
 init();
 pollTm = setInterval(() => fetchState(true), 2500);

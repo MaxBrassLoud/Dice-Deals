@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dice Deals — Discord Activity</title>
+    <script src="https://cdn.jsdelivr.net/npm/@discord/embedded-app-sdk@latest/dist/sdk.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0a0e1a;
+            color: #f1f5f9;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Loading screen */
+        .loading {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            gap: 16px;
+        }
+        .loading-dice {
+            font-size: 48px;
+            animation: diceSpin 1.5s ease-in-out infinite;
+        }
+        @keyframes diceSpin {
+            0%, 100% { transform: rotate(0deg) scale(1); }
+            50% { transform: rotate(180deg) scale(1.2); }
+        }
+        .loading-text { font-size: 16px; color: #94a3b8; }
+        .loading-bar {
+            width: 200px; height: 4px;
+            background: #1e293b;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .loading-bar-fill {
+            width: 30%;
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #2dd4bf);
+            border-radius: 2px;
+            animation: loadBar 1.2s ease-in-out infinite;
+        }
+        @keyframes loadBar {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(400%); }
+        }
+
+        /* Lobby */
+        .lobby {
+            display: none;
+            flex-direction: column;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .lobby.active { display: flex; }
+
+        .lobby-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+        .lobby-title {
+            font-size: 20px;
+            font-weight: 800;
+            background: linear-gradient(135deg, #3b82f6, #2dd4bf);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+        }
+        .discord-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px;
+            background: rgba(88,101,242,0.15);
+            border: 1px solid rgba(88,101,242,0.3);
+            border-radius: 20px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #5865f2;
+        }
+
+        .lobby-content {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        /* Players grid */
+        .players-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .section-title {
+            font-size: 12px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #94a3b8;
+        }
+        .players-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 10px;
+        }
+        .player-slot {
+            background: #111827;
+            border: 2px dashed #334155;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+            transition: all 0.3s;
+        }
+        .player-slot.filled {
+            border-style: solid;
+            border-color: var(--slot-color, #334155);
+            background: rgba(255,255,255,0.02);
+        }
+        .player-slot .avatar {
+            width: 48px; height: 48px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 24px;
+            margin: 0 auto 8px;
+            background: var(--slot-color, #334155);
+        }
+        .player-slot .name {
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 2px;
+        }
+        .player-slot .status {
+            font-size: 10px;
+            color: #94a3b8;
+        }
+        .player-slot.empty .avatar {
+            background: #1e293b;
+            font-size: 20px;
+            color: #475569;
+        }
+
+        /* Actions */
+        .actions-section {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .action-card {
+            background: #111827;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .action-card h3 {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .act-btn {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 700;
+            font-family: inherit;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .act-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .act-btn.start {
+            background: linear-gradient(135deg, #22c55e, #16a34a);
+            color: white;
+        }
+        .act-btn.start:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(34,197,94,0.3); }
+        .act-btn.invite {
+            background: linear-gradient(135deg, #5865f2, #4752c4);
+            color: white;
+        }
+        .act-btn.invite:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88,101,242,0.3); }
+
+        .room-code {
+            font-family: 'Courier New', monospace;
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: 6px;
+            color: #22c55e;
+            text-align: center;
+            padding: 12px;
+            background: rgba(34,197,94,0.06);
+            border: 1px solid rgba(34,197,94,0.2);
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+
+        .waiting-text {
+            font-size: 12px;
+            color: #94a3b8;
+            text-align: center;
+            padding: 8px;
+        }
+
+        /* Not in Discord fallback */
+        .not-discord {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            padding: 40px;
+            text-align: center;
+            gap: 20px;
+        }
+        .not-discord.active { display: flex; }
+        .not-discord h1 { font-size: 28px; font-weight: 800; }
+        .not-discord p { color: #94a3b8; font-size: 15px; max-width: 400px; line-height: 1.5; }
+        .not-discord .big-emoji { font-size: 64px; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <!-- Loading -->
+    <div class="loading" id="loading-screen">
+        <div class="loading-dice">🎲</div>
+        <div class="loading-text">Dice Deals wird geladen...</div>
+        <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+    </div>
+
+    <!-- Not in Discord -->
+    <div class="not-discord" id="not-discord">
+        <div class="big-dice">🎲</div>
+        <h1>Dice Deals</h1>
+        <p>Diese Seite laeuft als Discord Activity. Oeffne sie direkt in Discord, um mit Freunden gemeinsam zu spielen!</p>
+        <a href="/" style="padding:12px 24px;background:#3b82f6;color:white;border-radius:8px;font-weight:700;text-decoration:none;">Zum Dashboard</a>
+    </div>
+
+    <!-- Lobby (in Discord) -->
+    <div class="lobby" id="lobby">
+        <div class="lobby-header">
+            <div class="lobby-title">Dice Deals</div>
+            <div class="discord-badge">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="#5865f2"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.25.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.31.61.68 1.19 1.07 1.74.01.02.04.03.07.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02z"/></svg>
+                Discord Activity
+            </div>
+        </div>
+
+        <div class="lobby-content">
+            <div class="players-section">
+                <div class="section-title">Spieler im Lobby</div>
+                <div class="players-grid" id="players-grid"></div>
+            </div>
+
+            <div class="actions-section">
+                <div class="action-card">
+                    <div class="section-title">Raum</div>
+                    <div class="room-code" id="room-code">------</div>
+                    <button class="act-btn invite" onclick="inviteDiscordUsers()">Discord-Freunde einladen</button>
+                </div>
+
+                <div class="action-card">
+                    <div class="section-title">Aktionen</div>
+                    <button class="act-btn start" id="start-btn" onclick="startGame()" disabled>Spiel starten</button>
+                    <div class="waiting-text" id="waiting-text">Warte auf Spieler...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let discordSdk = null;
+        let currentUser = null;
+        let guildMembers = [];
+        let roomCode = null;
+        let pollInterval = null;
+
+        async function initDiscord() {
+            try {
+                // Check if we're inside Discord
+                if (typeof DiscordSDK === 'undefined') {
+                    document.getElementById('loading-screen').style.display = 'none';
+                    document.getElementById('not-discord').classList.add('active');
+                    return;
+                }
+
+                discordSdk = new DiscordSDK({ clientId: DISCORD_CLIENT_ID });
+
+                await discordSdk.ready();
+
+                // Get current user
+                currentUser = await discordSdk.commands.getCurrentUser();
+
+                // Get guild members (people in the call)
+                try {
+                    const guild = await discordSdk.commands.getGuild();
+                    if (guild) {
+                        guildMembers = await discordSdk.commands.getGuildMembers();
+                    }
+                } catch(e) {
+                    console.log('No guild context');
+                }
+
+                document.getElementById('loading-screen').style.display = 'none';
+                document.getElementById('lobby').classList.add('active');
+
+                // Show current user in lobby
+                renderLobbyPlayers();
+                createRoom();
+
+            } catch(e) {
+                console.error('Discord SDK error:', e);
+                document.getElementById('loading-screen').style.display = 'none';
+                document.getElementById('not-discord').classList.add('active');
+            }
+        }
+
+        function renderLobbyPlayers() {
+            const grid = document.getElementById('players-grid');
+            grid.innerHTML = '';
+
+            // Current user
+            const slot = document.createElement('div');
+            slot.className = 'player-slot filled';
+            slot.style.setProperty('--slot-color', '#3b82f6');
+            slot.innerHTML = `
+                <div class="avatar">${currentUser?.username?.charAt(0)?.toUpperCase() || '?'}</div>
+                <div class="name">${currentUser?.username || 'Du'}</div>
+                <div class="status">Bereit</div>
+            `;
+            grid.appendChild(slot);
+
+            // Empty slots
+            for (let i = 0; i < 5; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'player-slot empty';
+                empty.innerHTML = `
+                    <div class="avatar">+</div>
+                    <div class="name">Warten...</div>
+                    <div class="status">Leer</div>
+                `;
+                grid.appendChild(empty);
+            }
+        }
+
+        async function createRoom() {
+            try {
+                const res = await fetch('/api/room/create', { method: 'POST' });
+                if (res.ok) {
+                    const data = await res.json();
+                    roomCode = data.code;
+                    document.getElementById('room-code').textContent = roomCode;
+                    document.getElementById('start-btn').disabled = false;
+                    startPolling();
+                }
+            } catch(e) { console.error(e); }
+        }
+
+        async function inviteDiscordUsers() {
+            if (!discordSdk) return;
+            try {
+                await discordSdk.commands.openInviteDialog();
+            } catch(e) {
+                console.log('Invite dialog not available');
+            }
+        }
+
+        async function startGame() {
+            if (!roomCode) return;
+            window.location.href = `/dice-deals`;
+        }
+
+        function startPolling() {
+            pollInterval = setInterval(async () => {
+                try {
+                    const res = await fetch('/api/game/state');
+                    if (res.ok) {
+                        const state = await res.json();
+                        updateLobbyFromState(state);
+                    }
+                } catch(e) {}
+            }, 2000);
+        }
+
+        function updateLobbyFromState(state) {
+            const grid = document.getElementById('players-grid');
+            grid.innerHTML = '';
+
+            state.players.forEach(p => {
+                const slot = document.createElement('div');
+                slot.className = 'player-slot filled';
+                slot.style.setProperty('--slot-color', p.avatar_color || '#3b82f6');
+                slot.innerHTML = `
+                    <div class="avatar">${p.avatar_emoji || '🎲'}</div>
+                    <div class="name">${p.username}</div>
+                    <div class="status">${p.is_bankrupt ? 'Bankrott' : 'Bereit'}</div>
+                `;
+                grid.appendChild(slot);
+            });
+
+            // Empty slots
+            const emptyCount = Math.max(0, 6 - state.players.length);
+            for (let i = 0; i < emptyCount; i++) {
+                const empty = document.createElement('div');
+                empty.className = 'player-slot empty';
+                empty.innerHTML = `<div class="avatar">+</div><div class="name">Warten...</div><div class="status">Leer</div>`;
+                grid.appendChild(empty);
+            }
+
+            const startBtn = document.getElementById('start-btn');
+            const waitingText = document.getElementById('waiting-text');
+            if (state.players.length >= 2) {
+                startBtn.disabled = false;
+                waitingText.textContent = `${state.players.length} Spieler bereit!`;
+            } else {
+                startBtn.disabled = true;
+                waitingText.textContent = `Warte auf Spieler... (${state.players.length}/6)`;
+            }
+        }
+
+        // Auto-init
+        initDiscord();
+    </script>
+</body>
+</html>

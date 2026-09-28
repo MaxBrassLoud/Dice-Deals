@@ -5,7 +5,12 @@ import string
 import requests
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, redirect, session
-from database import create_database, create_user, get_user_by_username
+from database import (create_database, create_user, get_user_by_username,
+                      get_user_by_id, update_user_avatar, update_last_seen,
+                      search_users, send_friend_request, respond_friend_request,
+                      remove_friend, get_friends, create_friend_invite,
+                      get_friend_invites, dismiss_friend_invite,
+                      update_user_discord_info)
 from ID_Creator import create_user_id
 from game_logic import Game, active_games
 from dotenv import load_dotenv
@@ -63,7 +68,11 @@ def parse_int_field(value, default=0):
 @app.route('/')
 @login_required
 def home():
-    return render_template("dashboard.html", username=session["username"])
+    update_last_seen(session["user_id"])
+    return render_template("dashboard.html",
+                           username=session["username"],
+                           avatar_emoji=session.get("avatar_emoji", "🎲"),
+                           avatar_color=session.get("avatar_color", "#3b82f6"))
 
 
 @app.route('/login')
@@ -85,6 +94,11 @@ def dice_deals():
     return render_template("dice-deals.html", room_code=get_room_code() or "")
 
 
+@app.route('/activity')
+def discord_activity():
+    return render_template("activity.html", discord_client_id=DISCORD_CLIENT_ID)
+
+
 @app.route('/api/v1/register', methods=['POST'])
 def register():
     data = request.get_json(silent=True) or {}
@@ -94,7 +108,7 @@ def register():
     if not username or not password or not email:
         return jsonify({"error": "Alle Felder sind erforderlich"}), 400
     if len(username) < 3 or len(username) > 20:
-        return jsonify({"error": "Benutzername muss 3–20 Zeichen lang sein"}), 400
+        return jsonify({"error": "Benutzername muss 3-20 Zeichen lang sein"}), 400
     if len(password) < 6:
         return jsonify({"error": "Passwort muss mindestens 6 Zeichen lang sein"}), 400
     user_id = create_user_id()
@@ -113,10 +127,13 @@ def login():
         return jsonify({"error": "Benutzername und Passwort erforderlich"}), 400
     user = get_user_by_username(username)
     if not user or user[2] != hash_password(password):
-        return jsonify({"error": "Ungültige Anmeldedaten"}), 401
+        return jsonify({"error": "Ungueltige Anmeldedaten"}), 401
     session["user_id"] = user[0]
     session["username"] = user[1]
+    session["avatar_emoji"] = user[7] if len(user) > 7 and user[7] else "🎲"
+    session["avatar_color"] = user[8] if len(user) > 8 and user[8] else "#3b82f6"
     return jsonify({"message": "Login erfolgreich"}), 200
+
 
 @app.route('/login/discord')
 def discord_login():
@@ -133,6 +150,7 @@ def discord_login():
 @app.route('/api/v1/discord/callback')
 def discord_callback():
     code = request.args.get("code")
+    state = request.args.get("state")
     if not code:
         return redirect("/login?error=oauth_failed")
     token_res = requests.post(
@@ -149,15 +167,46 @@ def discord_callback():
     discord_id = user_data.get("id")
     username = user_data.get("username")
     email = user_data.get("email")
+    avatar_hash = user_data.get("avatar")
+    discord_avatar_url = None
+    if avatar_hash:
+        ext = "gif" if avatar_hash.startswith("a_") else "png"
+        discord_avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.{ext}?size=128"
+
+    if state == "link_account" and "user_id" in session:
+        update_user_discord_info(session["user_id"], discord_id, discord_avatar_url, username)
+        session["discord_linked"] = True
+        return redirect("/?discord_linked=1")
+
     user = get_user_by_username(username)
     if not user:
         user_id = create_user_id()
         create_user(user_id, username, "DISCORD_LOGIN", email, third_party=1, provider=1, ext_user_id=discord_id)
+        update_user_discord_info(user_id, discord_id, discord_avatar_url, username)
     else:
         user_id = user[0]
+        update_user_discord_info(user_id, discord_id, discord_avatar_url, username)
     session["user_id"] = user_id
     session["username"] = username
+    user = get_user_by_id(user_id)
+    session["avatar_emoji"] = user[7] if user and len(user) > 7 and user[7] else "🎲"
+    session["avatar_color"] = user[8] if user and len(user) > 8 and user[8] else "#3b82f6"
     return redirect("/")
+
+
+@app.route('/login/discord/link')
+@login_required
+def discord_link():
+    url = (
+        "https://discord.com/api/oauth2/authorize"
+        f"?client_id={DISCORD_CLIENT_ID}"
+        "&response_type=code"
+        f"&redirect_uri={DISCORD_REDIRECT_URI}"
+        "&scope=identify"
+        "&state=link_account"
+    )
+    return redirect(url)
+
 
 @app.route('/api/room/create', methods=['POST'])
 @login_required
@@ -176,7 +225,7 @@ def join_room():
     data = request.get_json(silent=True) or {}
     code = data.get("code", "").strip().upper()
     if not code or len(code) != 6:
-        return jsonify({"error": "Ungültiger Code"}), 400
+        return jsonify({"error": "Ungueltiger Code"}), 400
     if code not in active_games:
         return jsonify({"error": "Raum nicht gefunden"}), 404
     session["room_code"] = code
@@ -231,7 +280,7 @@ def roll_dice():
     if game.pending_tax:
         return jsonify({"error": "Du musst zuerst die Steuer bezahlen."}), 400
     if game.pending_card:
-        return jsonify({"error": "Du musst zuerst die Karte bestätigen."}), 400
+        return jsonify({"error": "Du musst zuerst die Karte bestaetigen."}), 400
     game.roll_dice()
     return jsonify(game.to_dict())
 
@@ -260,7 +309,7 @@ def build_property():
     prop = data.get("property", "").strip()
     btype = data.get("type", "house")
     if not prop:
-        return jsonify({"error": "Grundstücksname fehlt"}), 400
+        return jsonify({"error": "Grundstuecksname fehlt"}), 400
     result = game.build(prop, btype)
     if not result.get("success"):
         return jsonify({"error": result.get("error", "Bauen fehlgeschlagen")}), 400
@@ -276,10 +325,12 @@ def join_game():
     color = data.get("color", "blue")
     valid = ["red","green","yellow","blue","purple","orange","pink","teal","lime","white","brown","cyan"]
     if color not in valid:
-        return jsonify({"error": f"Ungültige Farbe."}), 400
+        return jsonify({"error": f"Ungueltige Farbe."}), 400
     if any(p.color == color and not p.is_disconnected for p in game.players):
-        return jsonify({"error": f"Die Farbe '{color}' ist bereits vergeben. Wähle eine andere."}), 409
-    success = game.add_player(session["user_id"], session["username"], color)
+        return jsonify({"error": f"Die Farbe '{color}' ist bereits vergeben."}), 409
+    avatar_emoji = session.get("avatar_emoji", "🎲")
+    avatar_color = session.get("avatar_color", "#3b82f6")
+    success = game.add_player(session["user_id"], session["username"], color, avatar_emoji, avatar_color)
     if not success:
         return jsonify({"error": "Beitreten fehlgeschlagen (max. 6 Spieler oder bereits drin)."}), 400
     return jsonify(game.to_dict())
@@ -295,7 +346,7 @@ def mortgage():
     prop = data.get("property", "").strip()
     action = data.get("action", "take")
     if not prop:
-        return jsonify({"error": "Grundstücksname fehlt"}), 400
+        return jsonify({"error": "Grundstuecksname fehlt"}), 400
     if action == "take":
         result = game.take_mortgage(prop, session["username"])
     else:
@@ -367,7 +418,7 @@ def sell_building():
     prop = data.get("property", "").strip()
     sell_type = data.get("type", "house")
     if not prop:
-        return jsonify({"error": "Grundstücksname fehlt"}), 400
+        return jsonify({"error": "Grundstuecksname fehlt"}), 400
     result = game.sell_building(prop, sell_type, session["username"])
     if not result.get("success"):
         return jsonify({"error": result.get("error", "Fehler")}), 400
@@ -388,7 +439,7 @@ def end_turn():
     if game.pending_tax:
         return jsonify({"error": "Du musst zuerst die Steuer bezahlen."}), 400
     if game.pending_card:
-        return jsonify({"error": "Du musst zuerst die Karte bestätigen."}), 400
+        return jsonify({"error": "Du musst zuerst die Karte bestaetigen."}), 400
     game._next_player()
     game.dice_result = None
     game.can_buy = False
@@ -473,7 +524,7 @@ def trade_respond():
     data = request.get_json(silent=True) or {}
     action = data.get("action", "")
     if action not in ("accept", "reject", "counter"):
-        return jsonify({"error": "Ungültige Aktion"}), 400
+        return jsonify({"error": "Ungueltige Aktion"}), 400
     counter = None
     if action == "counter":
         counter = {
@@ -506,6 +557,154 @@ def chat():
         "text": text
     })
     return jsonify(game.to_dict())
+
+
+@app.route('/api/user/profile')
+@login_required
+def user_profile():
+    user = get_user_by_id(session["user_id"])
+    if not user:
+        return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    return jsonify({
+        "user_id": user[0],
+        "username": user[1],
+        "email": user[3],
+        "avatar_emoji": user[7] if len(user) > 7 and user[7] else "🎲",
+        "avatar_color": user[8] if len(user) > 8 and user[8] else "#3b82f6",
+        "discord_username": user[12] if len(user) > 12 else None,
+        "discord_avatar": user[11] if len(user) > 11 else None,
+    })
+
+
+@app.route('/api/user/avatar', methods=['POST'])
+@login_required
+def set_avatar():
+    data = request.get_json(silent=True) or {}
+    emoji = data.get("emoji", "🎲").strip()
+    color = data.get("color", "#3b82f6").strip()
+    if not emoji or len(emoji) > 4:
+        return jsonify({"error": "Ungueltiges Emoji"}), 400
+    if not color or len(color) > 20:
+        return jsonify({"error": "Ungueltige Farbe"}), 400
+    success = update_user_avatar(session["user_id"], emoji, color)
+    if not success:
+        return jsonify({"error": "Fehler beim Speichern"}), 500
+    session["avatar_emoji"] = emoji
+    session["avatar_color"] = color
+    return jsonify({"message": "Avatar aktualisiert", "avatar_emoji": emoji, "avatar_color": color})
+
+
+@app.route('/api/friends/search')
+@login_required
+def friends_search():
+    q = request.args.get("q", "").strip()
+    if len(q) < 2:
+        return jsonify([])
+    results = search_users(q, session["user_id"])
+    return jsonify(results)
+
+
+@app.route('/api/friends/list')
+@login_required
+def friends_list():
+    update_last_seen(session["user_id"])
+    data = get_friends(session["user_id"])
+    invites = get_friend_invites(session["user_id"])
+    data["invites"] = invites
+    return jsonify(data)
+
+
+@app.route('/api/friends/request', methods=['POST'])
+@login_required
+def friends_request():
+    data = request.get_json(silent=True) or {}
+    friend_id = data.get("friend_id", "").strip()
+    if not friend_id:
+        return jsonify({"error": "Benutzer-ID fehlt"}), 400
+    if friend_id == session["user_id"]:
+        return jsonify({"error": "Du kannst dich nicht selbst hinzufuegen"}), 400
+    friend = get_user_by_id(friend_id)
+    if not friend:
+        return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    success, msg = send_friend_request(session["user_id"], friend_id)
+    if not success:
+        return jsonify({"error": msg}), 400
+    return jsonify({"message": msg})
+
+
+@app.route('/api/friends/respond', methods=['POST'])
+@login_required
+def friends_respond():
+    data = request.get_json(silent=True) or {}
+    friend_id = data.get("friend_id", "").strip()
+    accept = data.get("accept", False)
+    if not friend_id:
+        return jsonify({"error": "Benutzer-ID fehlt"}), 400
+    respond_friend_request(session["user_id"], friend_id, accept)
+    return jsonify({"message": "Anfrage angenommen" if accept else "Anfrage abgelehnt"})
+
+
+@app.route('/api/friends/remove', methods=['POST'])
+@login_required
+def friends_remove():
+    data = request.get_json(silent=True) or {}
+    friend_id = data.get("friend_id", "").strip()
+    if not friend_id:
+        return jsonify({"error": "Benutzer-ID fehlt"}), 400
+    remove_friend(session["user_id"], friend_id)
+    return jsonify({"message": "Freund entfernt"})
+
+
+@app.route('/api/friends/invite', methods=['POST'])
+@login_required
+def friends_invite():
+    data = request.get_json(silent=True) or {}
+    friend_id = data.get("friend_id", "").strip()
+    code = get_room_code()
+    if not code:
+        return jsonify({"error": "Du bist in keinem Raum"}), 400
+    if not friend_id:
+        return jsonify({"error": "Benutzer-ID fehlt"}), 400
+    create_friend_invite(session["user_id"], friend_id, code)
+    return jsonify({"message": "Einladung gesendet"})
+
+
+@app.route('/api/friends/invites')
+@login_required
+def friends_invites():
+    invites = get_friend_invites(session["user_id"])
+    return jsonify(invites)
+
+
+@app.route('/api/friends/invite/respond', methods=['POST'])
+@login_required
+def friends_invite_respond():
+    data = request.get_json(silent=True) or {}
+    invite_id = data.get("invite_id")
+    accept = data.get("accept", False)
+    if not invite_id:
+        return jsonify({"error": "Einladung-ID fehlt"}), 400
+    dismiss_friend_invite(invite_id)
+    if accept:
+        invites = get_friend_invites(session["user_id"])
+        target = next((i for i in invites if i["id"] == invite_id), None)
+        if target:
+            session["room_code"] = target["room_code"]
+            return jsonify({"message": "Beigetreten", "room_code": target["room_code"]})
+    return jsonify({"message": "Einladung abgelehnt"})
+
+
+@app.route('/api/discord/info')
+@login_required
+def discord_info():
+    user = get_user_by_id(session["user_id"])
+    has_discord = bool(user and len(user) > 10 and user[10])
+    return jsonify({
+        "has_discord_account": has_discord,
+        "discord_username": user[12] if user and len(user) > 12 else None,
+        "discord_avatar": user[11] if user and len(user) > 11 else None,
+        "discord_id": user[10] if user and len(user) > 10 else None,
+    })
 
 
 @app.errorhandler(404)

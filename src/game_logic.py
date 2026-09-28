@@ -30,10 +30,12 @@ COMMUNITY_CARDS = [
 
 
 class Player:
-    def __init__(self, user_id: str, username: str, color: str):
+    def __init__(self, user_id: str, username: str, color: str, avatar_emoji: str = "🎲", avatar_color: str = "#3b82f6"):
         self.user_id = user_id
         self.username = username
         self.color = color
+        self.avatar_emoji = avatar_emoji
+        self.avatar_color = avatar_color
         self.money = 1500
         self.position = 0
         self.properties: List["Field"] = []
@@ -48,6 +50,8 @@ class Player:
             "user_id": self.user_id,
             "username": self.username,
             "color": self.color,
+            "avatar_emoji": self.avatar_emoji,
+            "avatar_color": self.avatar_color,
             "money": self.money,
             "position": self.position,
             "properties": [p.name for p in self.properties],
@@ -190,12 +194,14 @@ class Game:
 
 
 
-    def add_player(self, user_id, username, color) -> bool:
+    def add_player(self, user_id, username, color, avatar_emoji="🎲", avatar_color="#3b82f6") -> bool:
         existing = next((p for p in self.players if p.user_id == user_id), None)
         if existing and existing.is_disconnected:
             existing.is_disconnected = False
             existing.is_bankrupt = False
             existing.color = color
+            existing.avatar_emoji = avatar_emoji
+            existing.avatar_color = avatar_color
             self.status_message = f"{username} ist zurückgekehrt!"
             self._sys_chat(f"{username} ist dem Spiel wieder beigetreten! 🎉")
             return True
@@ -204,7 +210,7 @@ class Game:
         if any(p.user_id == user_id for p in self.players):
             return False
 
-        self.players.append(Player(user_id, username, color))
+        self.players.append(Player(user_id, username, color, avatar_emoji, avatar_color))
         self.status_message = f"{username} ist dem Spiel beigetreten!"
         self._sys_chat(f"{username} ist dem Spiel beigetreten! 🎉")
         return True

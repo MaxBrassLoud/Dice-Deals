@@ -5,20 +5,23 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
         :root {
-            --bg: #0d1117;
-            --bg2: #161b22;
-            --bg3: #21262d;
-            --border: #30363d;
-            --text: #e6edf3;
-            --text2: #8b949e;
-            --accent: #58a6ff;
-            --accent2: #3fb950;
-            --danger: #f85149;
+            --bg: #0a0e1a;
+            --bg2: #111827;
+            --bg3: #1e293b;
+            --bg4: #283548;
+            --border: #334155;
+            --text: #f1f5f9;
+            --text2: #94a3b8;
+            --accent: #3b82f6;
+            --accent2: #22c55e;
+            --danger: #ef4444;
+            --teal: #2dd4bf;
+            --purple: #a855f7;
         }
 
         body {
@@ -27,9 +30,22 @@
             color: var(--text);
             min-height: 100vh;
             padding: 32px 20px;
+            overflow-x: hidden;
         }
 
-        .container { max-width: 680px; margin: 0 auto; }
+        /* Animated background grid */
+        body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background:
+                radial-gradient(ellipse at 15% 20%, rgba(59, 130, 246, 0.06) 0%, transparent 50%),
+                radial-gradient(ellipse at 85% 80%, rgba(45, 212, 191, 0.04) 0%, transparent 50%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container { max-width: 680px; margin: 0 auto; position: relative; z-index: 1; }
 
         /* ── Header ── */
         .header {
@@ -37,30 +53,72 @@
             align-items: center;
             justify-content: space-between;
             margin-bottom: 32px;
+            animation: fadeInDown 0.5s ease both;
         }
-        .greeting h1 { font-size: 22px; font-weight: 700; }
+        @keyframes fadeInDown {
+            from { transform: translateY(-15px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .greeting h1 { font-size: 22px; font-weight: 800; }
         .greeting p { color: var(--text2); font-size: 14px; margin-top: 4px; }
 
-        .avatar {
-            width: 44px; height: 44px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, var(--accent), var(--accent2));
-            display: flex; align-items: center; justify-content: center;
-            font-weight: 700; font-size: 16px;
-            color: #0d1117;
+        .avatar-wrap {
+            position: relative;
+            cursor: pointer;
         }
+        .avatar {
+            width: 52px; height: 52px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), var(--teal));
+            display: flex; align-items: center; justify-content: center;
+            font-size: 26px;
+            border: 2px solid rgba(255,255,255,0.1);
+            transition: all 0.3s;
+            animation: avatarPulse 3s ease-in-out infinite;
+        }
+        @keyframes avatarPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.3); }
+            50% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+        }
+        .avatar:hover {
+            transform: scale(1.08);
+            border-color: var(--accent);
+        }
+        .avatar-edit-hint {
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            width: 18px; height: 18px;
+            background: var(--accent);
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px;
+            border: 2px solid var(--bg);
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .avatar-wrap:hover .avatar-edit-hint { opacity: 1; }
 
         /* ── Cards ── */
         .card {
             background: var(--bg2);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 16px;
             padding: 20px 24px;
             margin-bottom: 16px;
+            opacity: 0;
+            transform: translateY(15px);
+            animation: cardIn 0.5s ease forwards;
+        }
+        .card:nth-child(1) { animation-delay: 0.1s; }
+        .card:nth-child(2) { animation-delay: 0.2s; }
+        .card:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes cardIn {
+            to { opacity: 1; transform: translateY(0); }
         }
         .card-label {
             font-size: 11px;
-            font-weight: 600;
+            font-weight: 700;
             text-transform: uppercase;
             letter-spacing: .8px;
             color: var(--text2);
@@ -77,59 +135,83 @@
         .room-option {
             background: var(--bg3);
             border: 1px solid var(--border);
-            border-radius: 10px;
+            border-radius: 12px;
             padding: 20px;
             text-align: center;
-            transition: border-color .15s, transform .15s;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
         }
-        .room-option:hover { border-color: var(--accent); transform: translateY(-1px); }
+        .room-option::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, transparent, rgba(59,130,246,0.03));
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+        .room-option:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .room-option:hover::before { opacity: 1; }
 
-        .room-option .icon { font-size: 32px; margin-bottom: 10px; }
-        .room-option h3 { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
-        .room-option p { font-size: 12px; color: var(--text2); margin-bottom: 14px; }
+        .room-option .icon { font-size: 36px; margin-bottom: 10px; display: inline-block; transition: transform 0.3s; }
+        .room-option:hover .icon { transform: scale(1.1) rotate(-5deg); }
+        .room-option h3 { font-size: 14px; font-weight: 700; margin-bottom: 6px; }
+        .room-option p { font-size: 12px; color: var(--text2); margin-bottom: 14px; line-height: 1.4; }
 
         .btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            padding: 8px 16px;
-            border-radius: 6px;
+            padding: 9px 18px;
+            border-radius: 8px;
             border: 1px solid var(--border);
             background: var(--bg3);
             color: var(--text);
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            transition: all .15s;
+            transition: all 0.2s;
             font-family: inherit;
             width: 100%;
+            position: relative;
+            overflow: hidden;
         }
+        .btn::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, transparent, rgba(255,255,255,0.08), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.5s;
+        }
+        .btn:hover::after { transform: translateX(100%); }
         .btn:hover { border-color: var(--accent); color: var(--accent); }
-        .btn.primary { background: var(--accent); border-color: var(--accent); color: #0d1117; font-weight: 600; }
-        .btn.primary:hover { background: #79bcff; border-color: #79bcff; color: #0d1117; }
-        .btn.success { background: var(--accent2); border-color: var(--accent2); color: #0d1117; font-weight: 600; }
-        .btn.success:hover { background: #5dd66b; }
+        .btn:active { transform: scale(0.97); }
+        .btn.primary { background: var(--accent); border-color: var(--accent); color: #0a0e1a; font-weight: 700; }
+        .btn.primary:hover { background: #60a5fa; border-color: #60a5fa; color: #0a0e1a; }
+        .btn.success { background: var(--accent2); border-color: var(--accent2); color: #0a0e1a; font-weight: 700; }
+        .btn.success:hover { background: #4ade80; }
 
         /* Code input */
         .code-input-wrapper { display: flex; gap: 8px; margin-top: 10px; }
         .code-input {
             flex: 1;
-            padding: 8px 12px;
+            padding: 9px 14px;
             background: var(--bg);
-            border: 1px solid var(--border);
-            border-radius: 6px;
+            border: 1.5px solid var(--border);
+            border-radius: 8px;
             color: var(--text);
-            font-size: 15px;
-            font-weight: 600;
-            letter-spacing: 3px;
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 4px;
             text-transform: uppercase;
             font-family: 'Courier New', monospace;
             outline: none;
-            transition: border-color .15s;
+            transition: all 0.2s;
             text-align: center;
         }
-        .code-input:focus { border-color: var(--accent); }
+        .code-input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(59,130,246,0.15); }
         .code-input::placeholder { letter-spacing: 1px; font-weight: 400; color: var(--text2); }
 
         /* Active room banner */
@@ -137,22 +219,53 @@
             display: flex;
             align-items: center;
             gap: 14px;
-            background: rgba(63, 185, 80, .08);
-            border: 1px solid rgba(63, 185, 80, .3);
-            border-radius: 10px;
+            background: rgba(34, 197, 94, 0.06);
+            border: 1px solid rgba(34, 197, 94, 0.25);
+            border-radius: 12px;
             padding: 16px 20px;
             margin-bottom: 16px;
+            animation: bannerIn 0.5s ease both;
         }
-        .active-room-banner .room-icon { font-size: 28px; }
-        .active-room-banner h3 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        @keyframes bannerIn {
+            from { transform: scale(0.95); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
+        }
+        .active-room-banner .room-icon {
+            font-size: 30px;
+            animation: iconBounce 2s ease-in-out infinite;
+        }
+        @keyframes iconBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-4px); }
+        }
+        .active-room-banner h3 { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
         .active-room-banner p { font-size: 12px; color: var(--text2); }
         .room-code-display {
             font-family: 'Courier New', monospace;
-            font-size: 20px;
-            font-weight: 700;
-            letter-spacing: 4px;
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: 5px;
             color: var(--accent2);
+            position: relative;
+            cursor: pointer;
+            transition: color 0.2s;
         }
+        .room-code-display:hover { color: #4ade80; }
+        .room-code-display .copy-hint {
+            position: absolute;
+            top: -20px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 9px;
+            font-family: 'Inter', sans-serif;
+            color: var(--text2);
+            letter-spacing: 0;
+            font-weight: 400;
+            opacity: 0;
+            transition: opacity 0.2s;
+            white-space: nowrap;
+        }
+        .room-code-display:hover .copy-hint { opacity: 1; }
         .active-room-banner .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
         .active-room-banner .btn { width: auto; padding: 7px 14px; }
 
@@ -162,6 +275,12 @@
             font-size: 12px;
             margin-top: 6px;
             display: none;
+            animation: shakeError 0.3s ease;
+        }
+        @keyframes shakeError {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-4px); }
+            75% { transform: translateX(4px); }
         }
 
         /* Quick links */
@@ -173,27 +292,336 @@
             padding: 14px 16px;
             background: var(--bg3);
             border: 1px solid var(--border);
-            border-radius: 8px;
+            border-radius: 10px;
             color: var(--text);
             text-decoration: none;
             font-size: 13px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            transition: all .15s;
+            transition: all 0.2s;
         }
-        .action-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(88,166,255,.05); }
-        .action-btn .icon { font-size: 18px; }
+        .action-btn:hover { border-color: var(--accent); color: var(--accent); background: rgba(59,130,246,0.05); transform: translateY(-1px); }
+        .action-btn .icon { font-size: 20px; }
 
         .footer {
             margin-top: 32px;
             text-align: center;
             font-size: 12px;
             color: var(--text2);
+            animation: fadeIn 1s ease 0.6s both;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* ── Avatar Modal ── */
+        .avatar-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.75);
+            z-index: 5000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            backdrop-filter: blur(4px);
+        }
+        .avatar-modal-overlay.show { display: flex; }
+        .avatar-modal {
+            background: var(--bg2);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 28px;
+            width: 100%;
+            max-width: 420px;
+            animation: modalIn 0.3s cubic-bezier(0.34, 1.2, 0.64, 1);
+        }
+        @keyframes modalIn {
+            from { transform: scale(0.9) translateY(20px); opacity: 0; }
+            to { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .avatar-modal h2 { font-size: 18px; font-weight: 800; margin-bottom: 6px; }
+        .avatar-modal .subtitle { font-size: 13px; color: var(--text2); margin-bottom: 20px; }
+
+        .avatar-preview {
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 42px;
+            margin: 0 auto 20px;
+            border: 3px solid rgba(255,255,255,0.1);
+            transition: all 0.3s;
+        }
+
+        .section-label {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            color: var(--text2);
+            margin-bottom: 10px;
+        }
+
+        .emoji-grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 6px;
+            margin-bottom: 20px;
+        }
+        .emoji-opt {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 8px;
+            border: 2px solid transparent;
+            background: var(--bg3);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .emoji-opt:hover { border-color: var(--accent); transform: scale(1.08); }
+        .emoji-opt.selected { border-color: var(--accent); background: rgba(59,130,246,0.15); transform: scale(1.08); }
+
+        .color-grid {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .color-opt {
+            width: 100%;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            border: 3px solid transparent;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .color-opt:hover { transform: scale(1.12); }
+        .color-opt.selected { border-color: white; box-shadow: 0 0 0 2px rgba(255,255,255,0.3); transform: scale(1.12); }
+
+        .modal-footer { display: flex; gap: 10px; margin-top: 8px; }
+        .modal-footer .btn { flex: 1; }
+
+        /* ── Friends Section ── */
+        .friends-action-btn {
+            background: none;
+            border: none;
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            padding: 0;
+            width: auto;
+            transition: color 0.2s;
+        }
+        .friends-action-btn:hover { color: #60a5fa; }
+
+        .friend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            margin-bottom: 6px;
+            background: var(--bg3);
+            transition: all 0.2s;
+            animation: friendSlideIn 0.3s ease both;
+        }
+        .friend-item:hover { border-color: var(--accent); }
+        @keyframes friendSlideIn {
+            from { transform: translateX(-8px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        .friend-avatar {
+            width: 34px; height: 34px;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 18px;
+            flex-shrink: 0;
+            position: relative;
+        }
+        .friend-online-dot {
+            position: absolute;
+            bottom: 0; right: 0;
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            border: 2px solid var(--bg3);
+        }
+        .friend-online-dot.online { background: var(--accent2); }
+        .friend-online-dot.offline { background: #64748b; }
+        .friend-info { flex: 1; min-width: 0; }
+        .friend-name { font-size: 13px; font-weight: 600; }
+        .friend-status { font-size: 10px; color: var(--text2); }
+        .friend-actions { display: flex; gap: 4px; }
+        .friend-btn {
+            padding: 5px 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.15s;
+            white-space: nowrap;
+        }
+        .friend-btn:hover { border-color: var(--accent); color: var(--accent); }
+        .friend-btn.accept { background: rgba(34,197,94,0.1); border-color: rgba(34,197,94,0.3); color: var(--accent2); }
+        .friend-btn.accept:hover { background: rgba(34,197,94,0.2); }
+        .friend-btn.danger { color: var(--danger); border-color: rgba(239,68,68,0.3); }
+        .friend-btn.danger:hover { background: rgba(239,68,68,0.1); }
+        .friend-btn.invite { background: rgba(59,130,246,0.1); border-color: rgba(59,130,246,0.3); color: var(--accent); }
+        .friend-btn.invite:hover { background: rgba(59,130,246,0.2); }
+
+        .pending-label {
+            font-size: 10px; font-weight: 700; color: var(--warning);
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 6px; margin-top: 8px;
+        }
+        .pending-label:first-child { margin-top: 0; }
+
+        .friends-empty {
+            text-align: center;
+            padding: 20px;
+            color: var(--text2);
+            font-size: 13px;
+        }
+        .friends-empty .icon { font-size: 28px; margin-bottom: 6px; display: block; }
+
+        /* Friend Invites Banner */
+        .friend-invite-banner {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: rgba(59,130,246,0.06);
+            border: 1px solid rgba(59,130,246,0.25);
+            border-radius: 12px;
+            margin-bottom: 16px;
+            animation: bannerIn 0.4s ease both;
+        }
+        .friend-invite-banner .invite-text { flex: 1; font-size: 13px; }
+        .friend-invite-banner .invite-text strong { color: var(--accent); }
+        .friend-invite-banner .invite-actions { display: flex; gap: 6px; }
+        .friend-invite-banner .btn { width: auto; padding: 5px 12px; font-size: 12px; }
+
+        /* Discord Card */
+        .discord-section { margin-bottom: 14px; }
+        .discord-section:last-child { margin-bottom: 0; }
+        .discord-label { font-size: 11px; font-weight: 600; color: var(--text2); margin-bottom: 6px; }
+        
+        .discord-input:focus { border-color: #5865f2; }
+        .discord-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 16px;
+            border-radius: 8px;
+            border: 1px solid #5865f2;
+            background: rgba(88,101,242,0.1);
+            color: #5865f2;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+            width: 100%;
+            justify-content: center;
+        }
+        .discord-btn:hover { background: rgba(88,101,242,0.2); transform: translateY(-1px); }
+        .discord-btn.filled { background: #5865f2; color: white; border-color: #5865f2; }
+        .discord-btn.filled:hover { background: #6d7aff; }
+        .discord-btn svg { flex-shrink: 0; }
+        .discord-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 12px;
+            background: rgba(34,197,94,0.06);
+            border: 1px solid rgba(34,197,94,0.2);
+            border-radius: 8px;
+            font-size: 13px;
+        }
+        .discord-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); flex-shrink: 0; }
+        
+        
+        .discord-toggle-track.active { background: var(--accent2); }
+        
+        .discord-toggle-track.active 
+        .discord-share-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid #5865f2;
+            background: linear-gradient(135deg, #5865f2, #4752c4);
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+            width: 100%;
+            justify-content: center;
+        }
+        .discord-share-btn:hover { background: linear-gradient(135deg, #6d7aff, #5865f2); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88,101,242,0.3); }
+
+        /* Add Friend Modal */
+        .add-friend-modal { max-width: 420px; }
+        .search-input-wrap {
+            position: relative;
+            margin-bottom: 16px;
+        }
+        .search-input {
+            width: 100%;
+            padding: 10px 14px 10px 36px;
+            background: var(--bg);
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            color: var(--text);
+            font-size: 14px;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .search-input:focus { border-color: var(--accent); }
+        .search-icon {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text2);
+            font-size: 14px;
+        }
+        .search-results {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        .search-result-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            margin-bottom: 6px;
+            background: var(--bg3);
+            transition: border-color 0.15s;
+        }
+        .search-result-item:hover { border-color: var(--accent); }
+        .search-empty {
+            text-align: center;
+            padding: 20px;
+            color: var(--text2);
+            font-size: 13px;
         }
 
         @media (max-width: 480px) {
             .room-grid { grid-template-columns: 1fr; }
             .actions-grid { grid-template-columns: 1fr; }
+            .emoji-grid { grid-template-columns: repeat(6, 1fr); }
         }
     </style>
 </head>
@@ -203,10 +631,15 @@
     <!-- Header -->
     <div class="header">
         <div class="greeting">
-            <h1>Hallo, {{ username }} 👋</h1>
-            <p>Bereit für eine Runde Dice Deals?</p>
+            <h1>Hallo, {{ username }}</h1>
+            <p>Bereit fuer eine Runde Dice Deals?</p>
         </div>
-        <div class="avatar">{{ username[:2]|upper }}</div>
+        <div class="avatar-wrap" onclick="openAvatarModal()" title="Avatar anpassen">
+            <div class="avatar" id="header-avatar" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
+                {{ avatar_emoji }}
+            </div>
+            <div class="avatar-edit-hint">✏</div>
+        </div>
     </div>
 
     <!-- Active Room Banner (shown if in room) -->
@@ -214,11 +647,13 @@
         <div class="room-icon">🎮</div>
         <div>
             <h3>Aktiver Raum</h3>
-            <div class="room-code-display" id="banner-code"></div>
+            <div class="room-code-display" id="banner-code" onclick="copyRoomCode()" title="Klicken zum Kopieren">
+                <span class="copy-hint">Klicken zum Kopieren</span>
+            </div>
             <p>Teile diesen Code mit Freunden</p>
         </div>
         <div class="actions">
-            <button class="btn primary" onclick="goToGame()">Spielen →</button>
+            <button class="btn primary" onclick="goToGame()">Spielen</button>
             <button class="btn" onclick="leaveRoom()" style="color:var(--danger);border-color:var(--danger);">Verlassen</button>
         </div>
     </div>
@@ -256,6 +691,29 @@
         </div>
     </div>
 
+    <!-- Friend Invites Banner -->
+    <div id="friend-invites-banner" style="display:none;"></div>
+
+    <!-- Discord Connected Banner -->
+    <div id="discord-banner" style="display:none;"></div>
+
+    <!-- Friends Card -->
+    <div class="card" id="friends-card">
+        <div class="card-label" style="display:flex;align-items:center;justify-content:space-between;">
+            <span>Freunde</span>
+            <button class="friends-action-btn" onclick="openAddFriendModal()">+ Hinzufuegen</button>
+        </div>
+
+        <!-- Pending Requests -->
+        <div id="pending-section" style="display:none;">
+            <div class="pending-label">Offene Anfragen</div>
+            <div id="pending-list"></div>
+        </div>
+
+        <!-- Friends List -->
+        <div id="friends-list"></div>
+    </div>
+
     <!-- Quick Actions -->
     <div class="card">
         <div class="card-label">Schnellzugriff</div>
@@ -264,13 +722,138 @@
                 <span class="icon">🚪</span>
                 <span>Abmelden</span>
             </a>
+            <div class="action-btn" onclick="openAvatarModal()">
+                <span class="icon">🎨</span>
+                <span>Avatar anpassen</span>
+            </div>
         </div>
     </div>
 
-    <div class="footer">Dice Deals Online &middot; Viel Spaß beim Spielen!</div>
+    <!-- Discord Card -->
+    <div class="card" id="discord-card">
+        <div class="card-label" style="display:flex;align-items:center;justify-content:space-between;">
+            <span style="display:flex;align-items:center;gap:6px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="#5865f2" xmlns="http://www.w3.org/2000/svg"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.25.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.31.61.68 1.19 1.07 1.74.01.02.04.03.07.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.93c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/></svg>
+                Discord
+            </span>
+        </div>
+
+        <div id="discord-content"></div>
+    </div>
+
+    <div class="footer">Dice Deals Online · Viel Spass beim Spielen!</div>
+</div>
+
+<!-- Avatar Modal -->
+<div class="avatar-modal-overlay" id="avatar-modal" onclick="if(event.target===this)closeAvatarModal()">
+    <div class="avatar-modal">
+        <h2>Avatar anpassen</h2>
+        <div class="subtitle">Waehle dein Emoji und deine Farbe</div>
+        <div class="avatar-preview" id="avatar-preview" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
+            {{ avatar_emoji }}
+        </div>
+        <div class="section-label">Emoji</div>
+        <div class="emoji-grid" id="emoji-grid"></div>
+        <div class="section-label">Farbe</div>
+        <div class="color-grid" id="avatar-color-grid"></div>
+        <div class="modal-footer">
+            <button class="btn" onclick="closeAvatarModal()">Abbrechen</button>
+            <button class="btn primary" onclick="saveAvatar()">Speichern</button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Friend Modal -->
+<div class="avatar-modal-overlay" id="add-friend-modal" onclick="if(event.target===this)closeAddFriendModal()">
+    <div class="avatar-modal add-friend-modal">
+        <h2>Freund hinzufuegen</h2>
+        <div class="subtitle">Suche nach dem Benutzernamen</div>
+        <div class="search-input-wrap">
+            <span class="search-icon">🔍</span>
+            <input class="search-input" id="friend-search-input" placeholder="Benutzername suchen..." oninput="searchUsers(this.value)" autocomplete="off">
+        </div>
+        <div class="search-results" id="search-results">
+            <div class="search-empty">Tippe mindestens 2 Buchstaben ein</div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn" onclick="closeAddFriendModal()">Schliessen</button>
+        </div>
+    </div>
 </div>
 
 <script>
+    const AVATAR_EMOJIS = [
+        '🎲','💰','🏠','🎯','💎','🎭','🏆','🃏',
+        '🔥','⚡','🚀','👑','🎮','🎰','🎲','💀',
+        '🐱','🐶','🦊','🐻','🐼','🦁','🐸','🦄',
+        '🌟','⭐','🌈','🎪','🎨','🎭','🎬','🎤'
+    ];
+    const AVATAR_COLORS = [
+        '#3b82f6','#60a5fa','#2dd4bf','#22c55e','#a3e635',
+        '#eab308','#f9731e','#ef4444','#ec4899','#a855f7',
+        '#8b5cf6','#6366f1','#64748b','#f1f5f9','#78716c','#0d0d0d'
+    ];
+
+    let selEmoji = "{{ avatar_emoji }}";
+    let selColor = "{{ avatar_color }}";
+
+    function openAvatarModal() {
+        selEmoji = "{{ avatar_emoji }}";
+        selColor = "{{ avatar_color }}";
+        renderEmojiGrid();
+        renderColorGrid();
+        updatePreview();
+        document.getElementById("avatar-modal").classList.add("show");
+    }
+    function closeAvatarModal() {
+        document.getElementById("avatar-modal").classList.remove("show");
+    }
+
+    function renderEmojiGrid() {
+        const grid = document.getElementById("emoji-grid");
+        grid.innerHTML = "";
+        AVATAR_EMOJIS.forEach(e => {
+            const el = document.createElement("div");
+            el.className = "emoji-opt" + (e === selEmoji ? " selected" : "");
+            el.textContent = e;
+            el.onclick = () => { selEmoji = e; renderEmojiGrid(); updatePreview(); };
+            grid.appendChild(el);
+        });
+    }
+    function renderColorGrid() {
+        const grid = document.getElementById("avatar-color-grid");
+        grid.innerHTML = "";
+        AVATAR_COLORS.forEach(c => {
+            const el = document.createElement("div");
+            el.className = "color-opt" + (c === selColor ? " selected" : "");
+            el.style.background = c;
+            el.onclick = () => { selColor = c; renderColorGrid(); updatePreview(); };
+            grid.appendChild(el);
+        });
+    }
+    function updatePreview() {
+        const preview = document.getElementById("avatar-preview");
+        preview.textContent = selEmoji;
+        preview.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+    }
+
+    async function saveAvatar() {
+        try {
+            const res = await fetch("/api/user/avatar", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ emoji: selEmoji, color: selColor })
+            });
+            if (res.ok) {
+                const header = document.getElementById("header-avatar");
+                header.textContent = selEmoji;
+                header.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+                closeAvatarModal();
+            }
+        } catch(e) { console.error(e); }
+    }
+
+    // Room functions
     async function checkRoom() {
         const res = await fetch('/api/room/info');
         const data = await res.json();
@@ -283,13 +866,20 @@
 
     function showActiveBanner(code) {
         document.getElementById('active-room-banner').style.display = 'flex';
-        document.getElementById('banner-code').textContent = code;
+        document.getElementById('banner-code').innerHTML = `<span class="copy-hint">Klicken zum Kopieren</span>${code}`;
         document.getElementById('room-card').style.display = 'none';
     }
 
     function hideActiveBanner() {
         document.getElementById('active-room-banner').style.display = 'none';
         document.getElementById('room-card').style.display = 'block';
+    }
+
+    function copyRoomCode() {
+        const code = document.getElementById('banner-code').textContent.replace('Klicken zum Kopieren', '').trim();
+        navigator.clipboard.writeText(code).catch(() => {});
+        const hint = document.querySelector('.copy-hint');
+        if (hint) { hint.textContent = 'Kopiert!'; setTimeout(() => hint.textContent = 'Klicken zum Kopieren', 1500); }
     }
 
     async function createRoom() {
@@ -335,6 +925,349 @@
     }
 
     checkRoom();
+    loadFriends();
+
+    // ── Friends System ──
+    let searchTimeout = null;
+
+    function openAddFriendModal() {
+        document.getElementById("friend-search-input").value = "";
+        document.getElementById("search-results").innerHTML = '<div class="search-empty">Tippe mindestens 2 Buchstaben ein</div>';
+        document.getElementById("add-friend-modal").classList.add("show");
+        setTimeout(() => document.getElementById("friend-search-input").focus(), 100);
+    }
+    function closeAddFriendModal() {
+        document.getElementById("add-friend-modal").classList.remove("show");
+    }
+
+    async function searchUsers(query) {
+        clearTimeout(searchTimeout);
+        const container = document.getElementById("search-results");
+        if (query.length < 2) {
+            container.innerHTML = '<div class="search-empty">Tippe mindestens 2 Buchstaben ein</div>';
+            return;
+        }
+        container.innerHTML = '<div class="search-empty">Suche...</div>';
+        searchTimeout = setTimeout(async () => {
+            try {
+                const res = await fetch(`/api/friends/search?q=${encodeURIComponent(query)}`);
+                const users = await res.json();
+                if (!users.length) {
+                    container.innerHTML = '<div class="search-empty">Keine Benutzer gefunden</div>';
+                    return;
+                }
+                container.innerHTML = "";
+                users.forEach(u => {
+                    const el = document.createElement("div");
+                    el.className = "search-result-item";
+                    el.innerHTML = `
+                        <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">
+                            ${u.avatar_emoji}
+                            <div class="friend-online-dot ${u.online ? 'online' : 'offline'}"></div>
+                        </div>
+                        <div class="friend-info">
+                            <div class="friend-name">${u.username}</div>
+                            <div class="friend-status">${u.online ? 'Online' : 'Offline'}</div>
+                        </div>
+                        <button class="friend-btn accept" onclick="sendFriendRequest('${u.id}', this)">+ Freund</button>
+                    `;
+                    container.appendChild(el);
+                });
+            } catch(e) {
+                container.innerHTML = '<div class="search-empty">Fehler bei der Suche</div>';
+            }
+        }, 300);
+    }
+
+    async function sendFriendRequest(userId, btn) {
+        btn.disabled = true;
+        btn.textContent = "Sende...";
+        try {
+            const res = await fetch("/api/friends/request", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ friend_id: userId })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                btn.textContent = "Gesendet";
+                btn.style.color = "var(--accent2)";
+            } else {
+                btn.textContent = data.error || "Fehler";
+                btn.style.color = "var(--danger)";
+                setTimeout(() => { btn.disabled = false; btn.textContent = "+ Freund"; btn.style.color = ""; }, 2000);
+            }
+        } catch(e) {
+            btn.disabled = false;
+            btn.textContent = "+ Freund";
+        }
+    }
+
+    async function respondFriend(friendId, accept) {
+        try {
+            await fetch("/api/friends/respond", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ friend_id: friendId, accept })
+            });
+            loadFriends();
+        } catch(e) { console.error(e); }
+    }
+
+    async function removeFriend(friendId) {
+        if (!confirm("Freund wirklich entfernen?")) return;
+        try {
+            await fetch("/api/friends/remove", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ friend_id: friendId })
+            });
+            loadFriends();
+        } catch(e) { console.error(e); }
+    }
+
+    async function inviteToRoom(friendId) {
+        try {
+            const res = await fetch("/api/friends/invite", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ friend_id: friendId })
+            });
+            const data = await res.json();
+            if (res.ok) {
+                const btn = event.target;
+                btn.textContent = "Gesendet!";
+                btn.style.color = "var(--accent2)";
+                setTimeout(() => { btn.textContent = "Einladen"; btn.style.color = ""; }, 2000);
+            }
+        } catch(e) { console.error(e); }
+    }
+
+    async function respondInvite(inviteId, accept) {
+        try {
+            const res = await fetch("/api/friends/invite/respond", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ invite_id: inviteId, accept })
+            });
+            if (accept) {
+                const data = await res.json();
+                if (data.room_code) {
+                    window.location.href = "/dice-deals";
+                    return;
+                }
+            }
+            loadFriends();
+        } catch(e) { console.error(e); }
+    }
+
+    async function loadFriends() {
+        try {
+            const res = await fetch("/api/friends/list");
+            const data = await res.json();
+            renderPendingRequests(data.pending_incoming || []);
+            renderFriendsList(data.friends || [], data.pending_outgoing || []);
+            renderFriendInvites(data.invites || []);
+        } catch(e) { console.error(e); }
+    }
+
+    function renderPendingRequests(incoming) {
+        const section = document.getElementById("pending-section");
+        const list = document.getElementById("pending-list");
+        if (!incoming.length) {
+            section.style.display = "none";
+            return;
+        }
+        section.style.display = "block";
+        list.innerHTML = "";
+        incoming.forEach(u => {
+            const el = document.createElement("div");
+            el.className = "friend-item";
+            el.innerHTML = `
+                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${u.avatar_emoji}</div>
+                <div class="friend-info">
+                    <div class="friend-name">${u.username}</div>
+                    <div class="friend-status">Moechte dich als Freund</div>
+                </div>
+                <div class="friend-actions">
+                    <button class="friend-btn accept" onclick="respondFriend('${u.id}', true)">Annehmen</button>
+                    <button class="friend-btn danger" onclick="respondFriend('${u.id}', false)">Ablehnen</button>
+                </div>
+            `;
+            list.appendChild(el);
+        });
+    }
+
+    function renderFriendsList(friends, outgoing) {
+        const container = document.getElementById("friends-list");
+        container.innerHTML = "";
+        if (!friends.length && !outgoing.length) {
+            container.innerHTML = '<div class="friends-empty"><span class="icon">👥</span>Noch keine Freunde.<br>Fuege Freunde hinzu!</div>';
+            return;
+        }
+        outgoing.forEach(u => {
+            const el = document.createElement("div");
+            el.className = "friend-item";
+            el.innerHTML = `
+                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${u.avatar_emoji}</div>
+                <div class="friend-info">
+                    <div class="friend-name">${u.username}</div>
+                    <div class="friend-status" style="color:var(--warning);">Anfrage gesendet...</div>
+                </div>
+            `;
+            container.appendChild(el);
+        });
+        friends.forEach((u, i) => {
+            const el = document.createElement("div");
+            el.className = "friend-item";
+            el.style.animationDelay = `${i * 0.05}s`;
+            el.innerHTML = `
+                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">
+                    ${u.avatar_emoji}
+                    <div class="friend-online-dot ${u.online ? 'online' : 'offline'}"></div>
+                </div>
+                <div class="friend-info">
+                    <div class="friend-name">${u.username}</div>
+                    <div class="friend-status">${u.online ? 'Online' : 'Offline'}</div>
+                </div>
+                <div class="friend-actions">
+                    <button class="friend-btn invite" onclick="inviteToRoom('${u.id}')">Einladen</button>
+                    <button class="friend-btn danger" onclick="removeFriend('${u.id}')" title="Entfernen">✕</button>
+                </div>
+            `;
+            container.appendChild(el);
+        });
+    }
+
+    function renderFriendInvites(invites) {
+        const banner = document.getElementById("friend-invites-banner");
+        if (!invites.length) {
+            banner.style.display = "none";
+            return;
+        }
+        banner.style.display = "block";
+        banner.innerHTML = "";
+        invites.forEach(inv => {
+            const el = document.createElement("div");
+            el.className = "friend-invite-banner";
+            el.innerHTML = `
+                <span style="font-size:24px;">🎮</span>
+                <div class="invite-text"><strong>${inv.from_username}</strong> laden dich into Raum <strong>${inv.room_code}</strong> ein</div>
+                <div class="invite-actions">
+                    <button class="btn success" onclick="respondInvite(${inv.id}, true)">Beitreten</button>
+                    <button class="btn" onclick="respondInvite(${inv.id}, false)">Ablehnen</button>
+                </div>
+            `;
+            banner.appendChild(el);
+        });
+    }
+
+    // Poll friends every 10s for online status
+    setInterval(loadFriends, 10000);
+
+    // ── Discord Integration ──
+    let discordInfo = {};
+    let currentRoomCode = null;
+
+    async function loadDiscordInfo() {
+        try {
+            const res = await fetch("/api/discord/info");
+            discordInfo = await res.json();
+            renderDiscordCard();
+        } catch(e) { console.error(e); }
+    }
+
+    function renderDiscordCard() {
+        const container = document.getElementById("discord-content");
+        if (!container) return;
+
+        let html = "";
+
+        // Account linking status
+        if (discordInfo.has_discord_account) {
+            html += `<div class="discord-status" style="margin-bottom:14px;">
+                <div class="dot"></div>
+                <span>Verbunden mit <strong>${discordInfo.discord_username || 'Discord'}</strong></span>
+            </div>`;
+        } else {
+            html += `<div class="discord-section">
+                <a href="/login/discord/link" class="discord-btn" style="text-decoration:none;">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.25.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.31.61.68 1.19 1.07 1.74.01.02.04.03.07.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.93c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/></svg>
+                    Discord-Account verbinden
+                </a>
+            </div>`;
+        }
+
+        // Notification toggle
+        html += `<div class="discord-section">
+            <div class="discord-toggle" onclick="toggleDiscordNotifications()">
+                <div class="discord-toggle-track ${discordInfo.notifications_enabled ? 'active' : ''}" id="discord-toggle-track">
+                    <div class="discord-toggle-thumb"></div>
+                </div>
+                <span style="font-size:13px;">Webhook-Benachrichtigungen</span>
+            </div>
+        </div>`;
+
+        // Webhook URL input
+        html += `<div class="discord-section" id="discord-webhook-section" style="display:${discordInfo.notifications_enabled ? 'block' : 'none'};">
+            <div class="discord-label">Discord Webhook URL</div>
+            <input class="discord-input" id="discord-webhook-input" placeholder="https://discord.com/api/webhooks/..." value="${discordInfo.webhook_url || ''}">
+            <div style="display:flex;gap:8px;margin-top:8px;">
+                <button class="discord-btn filled" style="flex:1;" onclick="saveDiscordWebhook()">Speichern</button>
+                <button class="discord-btn" style="flex:1;" onclick="testDiscordWebhook()">Test senden</button>
+            </div>
+            <p style="font-size:10px;color:var(--text2);margin-top:6px;">Erstelle einen Webhook in deinen Discord-Server Einstellungen > Integrationen > Webhooks</p>
+        </div>`;
+
+        // Share to Discord button (only when in room)
+        html += `<div class="discord-section" id="discord-share-section" style="display:none;">
+            <button class="discord-share-btn" onclick="shareToDiscord()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.25.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.31.61.68 1.19 1.07 1.74.01.02.04.03.07.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02z"/></svg>
+                Spiel in Discord teilen
+            </button>
+        </div>`;
+
+        // Open in Discord (Activity SDK link)
+        html += `<div class="discord-section">
+            <div class="discord-label">Discord Activity</div>
+            <p style="font-size:11px;color:var(--text2);margin-bottom:8px;">Spiele Dice Deals direkt in Discord mit Freunden!</p>
+            <a href="https://discord.com/developers/activities" target="_blank" class="discord-btn" style="text-decoration:none;">
+                In Discord oeffnen
+            </a>
+        </div>`;
+
+        container.innerHTML = html;
+
+        // Show share button if in room
+        checkRoomForDiscord();
+    }
+
+    async function checkRoomForDiscord() {
+        try {
+            const res = await fetch('/api/room/info');
+            const data = await res.json();
+            const shareSection = document.getElementById("discord-share-section");
+            if (shareSection) {
+                shareSection.style.display = data.in_room ? "block" : "none";
+            }
+            if (data.in_room) currentRoomCode = data.code;
+        } catch(e) {}
+    }
+
+
+
+
+
+
+
+    function shareToDiscord() {
+        if (!currentRoomCode) return;
+        const text = 'Tritt meinem Dice Deals Spiel bei! Raumcode: ' + currentRoomCode + '\n' + window.location.origin + '/dice-deals';
+        navigator.clipboard.writeText(text).then(() => alert('Einladung kopiert!')).catch(() => prompt('Kopiere:', text));
+    }
+
+    // Load Discord settings on page load
+    loadDiscordInfo();
 </script>
 </body>
 </html>

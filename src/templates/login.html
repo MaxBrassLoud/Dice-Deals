@@ -39,12 +39,86 @@
             justify-content: center;
             padding: 2rem 1.5rem;
             color: var(--text-primary);
+            overflow: hidden;
+        }
+
+        /* Floating dice particles */
+        .particles {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            z-index: 0;
+        }
+        .particle {
+            position: absolute;
+            font-size: 24px;
+            opacity: 0.06;
+            animation: floatDice linear infinite;
+        }
+        .particle:nth-child(1) { left: 8%; animation-duration: 18s; animation-delay: 0s; font-size: 28px; }
+        .particle:nth-child(2) { left: 22%; animation-duration: 22s; animation-delay: -3s; font-size: 20px; }
+        .particle:nth-child(3) { left: 38%; animation-duration: 16s; animation-delay: -7s; font-size: 32px; }
+        .particle:nth-child(4) { left: 55%; animation-duration: 25s; animation-delay: -2s; font-size: 18px; }
+        .particle:nth-child(5) { left: 70%; animation-duration: 20s; animation-delay: -10s; font-size: 26px; }
+        .particle:nth-child(6) { left: 85%; animation-duration: 19s; animation-delay: -5s; font-size: 22px; }
+        .particle:nth-child(7) { left: 15%; animation-duration: 24s; animation-delay: -12s; font-size: 30px; }
+        .particle:nth-child(8) { left: 62%; animation-duration: 17s; animation-delay: -8s; font-size: 16px; }
+        @keyframes floatDice {
+            0% { transform: translateY(110vh) rotate(0deg); opacity: 0; }
+            10% { opacity: 0.06; }
+            90% { opacity: 0.06; }
+            100% { transform: translateY(-10vh) rotate(360deg); opacity: 0; }
         }
 
         .auth-container {
             max-width: 460px;
             width: 100%;
             margin: 0 auto;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Logo animation */
+        .logo-section {
+            text-align: center;
+            margin-bottom: 1.5rem;
+            animation: logoEntrance 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        }
+        @keyframes logoEntrance {
+            from { transform: translateY(-20px) scale(0.9); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+        .logo-dice {
+            display: inline-flex;
+            gap: 6px;
+            margin-bottom: 0.6rem;
+        }
+        .logo-dice span {
+            font-size: 2.2rem;
+            display: inline-block;
+            animation: diceWave 2s ease-in-out infinite;
+        }
+        .logo-dice span:nth-child(1) { animation-delay: 0s; }
+        .logo-dice span:nth-child(2) { animation-delay: 0.15s; }
+        .logo-dice span:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes diceWave {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            25% { transform: translateY(-6px) rotate(-5deg); }
+            75% { transform: translateY(2px) rotate(3deg); }
+        }
+        .logo-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, #e0f2fe, #a5f3fc, #3b82f6);
+            background-size: 200% 200%;
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            animation: gradientShift 4s ease infinite;
+        }
+        @keyframes gradientShift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
         }
 
         .auth-card {
@@ -53,13 +127,45 @@
             border: 1px solid var(--card-border);
             border-radius: 2rem;
             padding: 2rem 1.8rem;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: transform 0.3s, box-shadow 0.3s, border-color 0.3s;
+            position: relative;
+            overflow: hidden;
+            animation: cardEntrance 0.6s cubic-bezier(0.34, 1.2, 0.64, 1) 0.2s both;
+        }
+        @keyframes cardEntrance {
+            from { transform: translateY(30px) scale(0.95); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
+
+        /* Card shine effect */
+        .auth-card::before {
+            content: "";
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: linear-gradient(
+                45deg,
+                transparent 40%,
+                rgba(255, 255, 255, 0.03) 45%,
+                rgba(255, 255, 255, 0.05) 50%,
+                rgba(255, 255, 255, 0.03) 55%,
+                transparent 60%
+            );
+            transform: translateX(-100%) rotate(0deg);
+            transition: transform 0.8s ease;
+            pointer-events: none;
+        }
+        .auth-card:hover::before {
+            transform: translateX(100%) rotate(0deg);
         }
 
         .auth-card:hover {
             transform: translateY(-3px);
             border-color: rgba(59, 130, 246, 0.5);
-            box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.6);
+            box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.6),
+                        0 0 60px -20px rgba(59, 130, 246, 0.15);
         }
 
         .card-header {
@@ -83,6 +189,14 @@
             margin-bottom: 1.5rem;
             display: flex;
             flex-direction: column;
+            animation: inputSlideIn 0.5s ease both;
+        }
+        .input-group:nth-child(1) { animation-delay: 0.3s; }
+        .input-group:nth-child(2) { animation-delay: 0.4s; }
+        .input-group:nth-child(3) { animation-delay: 0.5s; }
+        @keyframes inputSlideIn {
+            from { transform: translateX(-10px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
         }
 
         label {
@@ -108,13 +222,14 @@
             font-size: 0.9rem;
             font-family: 'Inter', monospace;
             color: var(--text-primary);
-            transition: all 0.2s;
+            transition: all 0.3s;
             outline: none;
         }
 
         input:focus {
             border-color: var(--accent-blue);
             box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+            background: rgba(15, 23, 42, 0.9);
         }
 
         .field-message {
@@ -125,6 +240,7 @@
             display: flex;
             align-items: center;
             gap: 5px;
+            transition: all 0.2s;
         }
 
         .field-message.error {
@@ -135,6 +251,22 @@
         }
         .field-message.success {
             color: var(--success);
+        }
+
+        /* Password strength bar */
+        .pw-strength {
+            height: 3px;
+            border-radius: 2px;
+            background: var(--border-subtle);
+            margin-top: 6px;
+            overflow: hidden;
+            transition: opacity 0.2s;
+        }
+        .pw-strength-bar {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s ease, background 0.3s ease;
+            width: 0%;
         }
 
         .btn {
@@ -148,14 +280,30 @@
             font-family: 'Inter', sans-serif;
             color: #0f172a;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.25s;
             margin-top: 0.5rem;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .btn::after {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(95deg, transparent, rgba(255,255,255,0.2), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.5s;
+        }
+        .btn:hover::after {
+            transform: translateX(100%);
         }
 
         .btn:hover {
-            transform: scale(1.01);
-            background: linear-gradient(95deg, #2cbcab, #2563eb);
-            box-shadow: 0 5px 15px rgba(59, 130, 246, 0.4);
+            transform: scale(1.02);
+            box-shadow: 0 5px 20px rgba(59, 130, 246, 0.4);
+        }
+        .btn:active {
+            transform: scale(0.98);
         }
 
         .btn-discord {
@@ -183,6 +331,7 @@
             text-decoration: none;
             font-weight: 600;
             cursor: pointer;
+            transition: color 0.2s;
         }
 
         .switch-link a:hover {
@@ -212,6 +361,11 @@
             padding: 0.5rem;
             border-radius: 2rem;
             display: none;
+            animation: msgPop 0.3s ease;
+        }
+        @keyframes msgPop {
+            from { transform: scale(0.9); opacity: 0; }
+            to { transform: scale(1); opacity: 1; }
         }
         .global-message.error {
             background: rgba(249, 115, 94, 0.15);
@@ -227,37 +381,77 @@
             margin-top: 2rem;
             font-size: 0.7rem;
             color: var(--text-secondary);
+            animation: fadeIn 1s ease 0.8s both;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         .hidden {
             display: none;
         }
+
+        /* Panel transitions */
+        .panel-exit {
+            animation: panelExit 0.3s ease forwards;
+        }
+        @keyframes panelExit {
+            to { transform: translateY(-15px) scale(0.96); opacity: 0; }
+        }
+        .panel-enter {
+            animation: panelEnter 0.35s cubic-bezier(0.34, 1.2, 0.64, 1) both;
+        }
+        @keyframes panelEnter {
+            from { transform: translateY(15px) scale(0.96); opacity: 0; }
+            to { transform: translateY(0) scale(1); opacity: 1; }
+        }
     </style>
 </head>
 <body>
 
+<!-- Floating particles -->
+<div class="particles">
+    <div class="particle">🎲</div>
+    <div class="particle">💰</div>
+    <div class="particle">🏠</div>
+    <div class="particle">🎯</div>
+    <div class="particle">💎</div>
+    <div class="particle">🎰</div>
+    <div class="particle">🏆</div>
+    <div class="particle">🃏</div>
+</div>
+
 <div class="auth-container">
+    <!-- Logo -->
+    <div class="logo-section">
+        <div class="logo-dice">
+            <span>🎲</span><span>💰</span><span>🏠</span>
+        </div>
+        <div class="logo-title">Dice Deals Online</div>
+    </div>
+
     <!-- LOGIN PANEL -->
     <div id="loginPanel" class="auth-card">
         <div class="card-header">
-            <span>🎲</span> Anmelden
+            <span>🔐</span> Anmelden
         </div>
         <form id="loginForm" novalidate>
             <div class="input-group">
-                <label>👤 Benutzername</label>
+                <label>Benutzername</label>
                 <div class="input-wrapper">
                     <input type="text" id="loginUsername" placeholder="z.B. Dice Deals King" autocomplete="username">
                 </div>
                 <div id="loginUsernameMsg" class="field-message"></div>
             </div>
             <div class="input-group">
-                <label>🔒 Passwort</label>
+                <label>Passwort</label>
                 <div class="input-wrapper">
                     <input type="password" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
                 </div>
                 <div id="loginPasswordMsg" class="field-message"></div>
             </div>
-            <button type="submit" class="btn">🔓 Einloggen</button>
+            <button type="submit" class="btn">Einloggen</button>
             <div id="loginGlobalMsg" class="global-message error"></div>
         </form>
         <div class="divider">oder</div>
@@ -270,45 +464,48 @@
             </span>
         </button>
         <div class="switch-link">
-            🃏 Noch kein Konto? <a id="showRegisterLink">Jetzt registrieren</a>
+            Noch kein Konto? <a id="showRegisterLink">Jetzt registrieren</a>
         </div>
     </div>
 
-    <!-- REGISTER PANEL (zuerst ausgeblendet) -->
+    <!-- REGISTER PANEL -->
     <div id="registerPanel" class="auth-card hidden">
         <div class="card-header">
-            <span>📝</span> Konto erstellen
+            <span>✨</span> Konto erstellen
         </div>
         <form id="registerForm" novalidate>
             <div class="input-group">
-                <label>👤 Benutzername</label>
+                <label>Benutzername</label>
                 <div class="input-wrapper">
                     <input type="text" id="regUsername" placeholder="Einzigartiger Name" autocomplete="off">
                 </div>
                 <div id="regUsernameMsg" class="field-message"></div>
             </div>
             <div class="input-group">
-                <label>📧 E‑Mail Adresse</label>
+                <label>E-Mail Adresse</label>
                 <div class="input-wrapper">
                     <input type="email" id="regEmail" placeholder="name@example.com" autocomplete="email">
                 </div>
                 <div id="regEmailMsg" class="field-message"></div>
             </div>
             <div class="input-group">
-                <label>🔒 Passwort</label>
+                <label>Passwort</label>
                 <div class="input-wrapper">
                     <input type="password" id="regPassword" placeholder="mind. 6 Zeichen" autocomplete="new-password">
                 </div>
+                <div class="pw-strength" id="pw-strength" style="opacity:0;">
+                    <div class="pw-strength-bar" id="pw-strength-bar"></div>
+                </div>
                 <div id="regPasswordMsg" class="field-message"></div>
             </div>
-            <button type="submit" class="btn">✨ Registrieren ✨</button>
+            <button type="submit" class="btn">Registrieren</button>
             <div id="registerGlobalMsg" class="global-message error"></div>
         </form>
         <div class="switch-link">
-            🔄 Bereits Mitglied? <a id="showLoginLink">Hier anmelden</a>
+            Bereits Mitglied? <a id="showLoginLink">Hier anmelden</a>
         </div>
     </div>
-    <footer>🎩 Dice Deals Online · Deine Immobilien-Strategie beginnt hier</footer>
+    <footer>Dice Deals Online · Deine Immobilien-Strategie beginnt hier</footer>
 </div>
 
 <script>
@@ -371,21 +568,21 @@
             const trimmed = email.trim();
             const emailRegex = /^[^\s@]+@([^\s@]+\.)+[^\s@]+$/;
             if (!emailRegex.test(trimmed)) {
-                return { valid: false, message: 'Ungültiges Format (z.B. name@domain.com).', type: 'error' };
+                return { valid: false, message: 'Ungueltiges Format (z.B. name@domain.com).', type: 'error' };
             }
             const [localPart, domainPart] = trimmed.split('@');
             if (localPart.length > 64) return { valid: false, message: 'Lokaler Teil zu lang.', type: 'error' };
             if (domainPart.length > 255 || domainPart.split('.').some(seg => seg.length > 63))
-                return { valid: false, message: 'Domain ungültig lang.', type: 'error' };
+                return { valid: false, message: 'Domain ungueltig lang.', type: 'error' };
             if (localPart.includes('..') || domainPart.includes('..'))
                 return { valid: false, message: 'Keine aufeinanderfolgenden Punkte.', type: 'error' };
             if (localPart.startsWith('.') || localPart.endsWith('.'))
                 return { valid: false, message: 'Lokaler Teil darf nicht mit Punkt starten/enden.', type: 'error' };
             let warningMsg = null;
             const suggestion = getDomainSuggestion(domainPart);
-            if (suggestion && suggestion !== domainPart) warningMsg = `Meintest Du „${suggestion}”? Prüfe die Domain.`;
+            if (suggestion && suggestion !== domainPart) warningMsg = `Meintest Du "${suggestion}"? Pruefe die Domain.`;
             let disposableWarn = null;
-            if (isDisposableDomain(domainPart)) disposableWarn = 'Temporäre E-Mail nicht erlaubt. Bitte dauerhafte Adresse.';
+            if (isDisposableDomain(domainPart)) disposableWarn = 'Temporaere E-Mail nicht erlaubt. Bitte dauerhafte Adresse.';
             let finalMessage = '';
             let finalType = 'success';
             if (warningMsg && disposableWarn) {
@@ -398,7 +595,7 @@
                 finalMessage = disposableWarn;
                 finalType = 'warning';
             } else {
-                finalMessage = '✓ Gültige E-Mail';
+                finalMessage = 'Gueltige E-Mail';
                 finalType = 'success';
             }
             return { valid: true, message: finalMessage, type: finalType };
@@ -409,21 +606,43 @@
             if (username.length < 3) return { valid: false, message: 'Mindestens 3 Zeichen.', type: 'error' };
             if (username.length > 20) return { valid: false, message: 'Maximal 20 Zeichen.', type: 'error' };
             if (!/^[a-zA-Z0-9_\-]+$/.test(username)) return { valid: false, message: 'Nur Buchstaben, Zahlen, _ und - erlaubt.', type: 'error' };
-            return { valid: true, message: '✓ Verfügbar', type: 'success' };
+            return { valid: true, message: 'Verfuegbar', type: 'success' };
         }
 
         function validatePassword(password, minLen = 6) {
             if (!password) return { valid: false, message: 'Passwort erforderlich.', type: 'error' };
             if (password.length < minLen) return { valid: false, message: `Mindestens ${minLen} Zeichen.`, type: 'error' };
-            return { valid: true, message: '✓ Gültig', type: 'success' };
+            return { valid: true, message: 'Gueltig', type: 'success' };
         }
 
+        function getPasswordStrength(password) {
+            if (!password) return 0;
+            let score = 0;
+            if (password.length >= 6) score++;
+            if (password.length >= 10) score++;
+            if (/[A-Z]/.test(password) && /[a-z]/.test(password)) score++;
+            if (/[0-9]/.test(password)) score++;
+            if (/[^A-Za-z0-9]/.test(password)) score++;
+            return score;
+        }
+
+        function updatePwStrength(password) {
+            const bar = document.getElementById('pw-strength-bar');
+            const container = document.getElementById('pw-strength');
+            if (!bar || !container) return;
+            if (!password) { container.style.opacity = '0'; return; }
+            container.style.opacity = '1';
+            const score = getPasswordStrength(password);
+            const pct = (score / 5) * 100;
+            const colors = ['#ef4444', '#f9731e', '#eab308', '#22c55e', '#2dd4bf'];
+            bar.style.width = pct + '%';
+            bar.style.background = colors[Math.min(score, 4)];
+        }
 
         const loginPanel = document.getElementById('loginPanel');
         const registerPanel = document.getElementById('registerPanel');
         const showRegisterLink = document.getElementById('showRegisterLink');
         const showLoginLink = document.getElementById('showLoginLink');
-
 
         const loginUsername = document.getElementById('loginUsername');
         const loginPassword = document.getElementById('loginPassword');
@@ -431,7 +650,6 @@
         const loginPasswordMsg = document.getElementById('loginPasswordMsg');
         const loginGlobalMsg = document.getElementById('loginGlobalMsg');
         const loginForm = document.getElementById('loginForm');
-
 
         const regUsername = document.getElementById('regUsername');
         const regEmail = document.getElementById('regEmail');
@@ -444,19 +662,17 @@
 
         const discordBtn = document.getElementById('discordBtn');
 
-
         const touched = { loginUser: false, loginPw: false, regUser: false, regEmail: false, regPw: false };
-
 
         function showLoginUserMsg() {
             if (!touched.loginUser) { loginUsernameMsg.innerHTML = ''; return; }
             const val = loginUsername.value.trim();
             if (!val) {
-                loginUsernameMsg.innerHTML = '❌ Benutzername erforderlich';
+                loginUsernameMsg.innerHTML = 'Benutzername erforderlich';
                 loginUsernameMsg.className = 'field-message error';
                 loginUsername.style.borderColor = 'var(--danger)';
             } else {
-                loginUsernameMsg.innerHTML = '✓ Ok';
+                loginUsernameMsg.innerHTML = 'Ok';
                 loginUsernameMsg.className = 'field-message success';
                 loginUsername.style.borderColor = 'var(--border-subtle)';
             }
@@ -464,11 +680,11 @@
         function showLoginPwMsg() {
             if (!touched.loginPw) { loginPasswordMsg.innerHTML = ''; return; }
             if (!loginPassword.value) {
-                loginPasswordMsg.innerHTML = '❌ Passwort erforderlich';
+                loginPasswordMsg.innerHTML = 'Passwort erforderlich';
                 loginPasswordMsg.className = 'field-message error';
                 loginPassword.style.borderColor = 'var(--danger)';
             } else {
-                loginPasswordMsg.innerHTML = '✓ Eingabe erfasst';
+                loginPasswordMsg.innerHTML = 'Eingabe erfasst';
                 loginPasswordMsg.className = 'field-message success';
                 loginPassword.style.borderColor = 'var(--border-subtle)';
             }
@@ -476,15 +692,14 @@
         function showRegUserMsg() {
             if (!touched.regUser) { regUsernameMsg.innerHTML = ''; return; }
             const result = validateUsername(regUsername.value);
-            regUsernameMsg.innerHTML = (result.type === 'error' ? '❌ ' : '✅ ') + result.message;
+            regUsernameMsg.innerHTML = result.message;
             regUsernameMsg.className = `field-message ${result.type}`;
             regUsername.style.borderColor = result.valid ? 'var(--border-subtle)' : 'var(--danger)';
         }
         function showRegEmailMsg() {
             if (!touched.regEmail) { regEmailMsg.innerHTML = ''; return; }
             const result = validateEmailExtended(regEmail.value);
-            let icon = result.type === 'error' ? '❌ ' : (result.type === 'warning' ? '⚠️ ' : '✅ ');
-            regEmailMsg.innerHTML = icon + result.message;
+            regEmailMsg.innerHTML = result.message;
             regEmailMsg.className = `field-message ${result.type}`;
             if (result.type === 'error') regEmail.style.borderColor = 'var(--danger)';
             else if (result.type === 'warning') regEmail.style.borderColor = 'var(--warning)';
@@ -493,11 +708,11 @@
         function showRegPwMsg() {
             if (!touched.regPw) { regPasswordMsg.innerHTML = ''; return; }
             const result = validatePassword(regPassword.value, 6);
-            regPasswordMsg.innerHTML = (result.type === 'error' ? '❌ ' : '✅ ') + result.message;
+            regPasswordMsg.innerHTML = result.message;
             regPasswordMsg.className = `field-message ${result.type}`;
             regPassword.style.borderColor = result.valid ? 'var(--border-subtle)' : 'var(--danger)';
+            updatePwStrength(regPassword.value);
         }
-
 
         loginUsername.addEventListener('input', () => { touched.loginUser = true; showLoginUserMsg(); });
         loginUsername.addEventListener('blur', () => { touched.loginUser = true; showLoginUserMsg(); });
@@ -511,20 +726,29 @@
         regPassword.addEventListener('input', () => { touched.regPw = true; showRegPwMsg(); });
         regPassword.addEventListener('blur', () => { touched.regPw = true; showRegPwMsg(); });
 
-
         function showLogin() {
-            loginPanel.classList.remove('hidden');
-            registerPanel.classList.add('hidden');
-
-            loginGlobalMsg.style.display = 'none';
-            registerGlobalMsg.style.display = 'none';
-
+            registerPanel.classList.add('panel-exit');
+            setTimeout(() => {
+                registerPanel.classList.add('hidden');
+                registerPanel.classList.remove('panel-exit');
+                loginPanel.classList.remove('hidden');
+                loginPanel.classList.add('panel-enter');
+                loginGlobalMsg.style.display = 'none';
+                registerGlobalMsg.style.display = 'none';
+                setTimeout(() => loginPanel.classList.remove('panel-enter'), 350);
+            }, 280);
         }
         function showRegister() {
-            loginPanel.classList.add('hidden');
-            registerPanel.classList.remove('hidden');
-            loginGlobalMsg.style.display = 'none';
-            registerGlobalMsg.style.display = 'none';
+            loginPanel.classList.add('panel-exit');
+            setTimeout(() => {
+                loginPanel.classList.add('hidden');
+                loginPanel.classList.remove('panel-exit');
+                registerPanel.classList.remove('hidden');
+                registerPanel.classList.add('panel-enter');
+                loginGlobalMsg.style.display = 'none';
+                registerGlobalMsg.style.display = 'none';
+                setTimeout(() => registerPanel.classList.remove('panel-enter'), 350);
+            }, 280);
         }
 
         showRegisterLink.addEventListener('click', (e) => {
@@ -536,7 +760,6 @@
             showLogin();
         });
 
-
         loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             loginGlobalMsg.style.display = 'none';
@@ -545,7 +768,7 @@
             const usernameVal = loginUsername.value.trim();
             const passwordVal = loginPassword.value;
             if (!usernameVal || !passwordVal) {
-                loginGlobalMsg.textContent = '❌ Bitte Benutzername und Passwort ausfüllen.';
+                loginGlobalMsg.textContent = 'Bitte Benutzername und Passwort ausfuellen.';
                 loginGlobalMsg.classList.add('error');
                 loginGlobalMsg.style.display = 'block';
                 return;
@@ -560,17 +783,16 @@
                     window.location.href = '/';
                 } else {
                     const data = await res.json().catch(() => ({}));
-                    loginGlobalMsg.textContent = data.error || 'Login fehlgeschlagen. Prüfe deine Zugangsdaten.';
+                    loginGlobalMsg.textContent = data.error || 'Login fehlgeschlagen. Pruefe deine Zugangsdaten.';
                     loginGlobalMsg.classList.add('error');
                     loginGlobalMsg.style.display = 'block';
                 }
             } catch {
-                loginGlobalMsg.textContent = 'Netzwerkfehler. Bitte später versuchen.';
+                loginGlobalMsg.textContent = 'Netzwerkfehler. Bitte spaeter versuchen.';
                 loginGlobalMsg.classList.add('error');
                 loginGlobalMsg.style.display = 'block';
             }
         });
-
 
         registerForm.addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -581,7 +803,7 @@
             const emailCheck = validateEmailExtended(regEmail.value);
             const passwordValid = validatePassword(regPassword.value, 6).valid;
             if (!usernameValid || !emailCheck.valid || !passwordValid) {
-                registerGlobalMsg.textContent = '❌ Bitte alle Felder korrekt ausfüllen (Benutzername 3-20 Zeichen, gültige E-Mail, Passwort min. 6).';
+                registerGlobalMsg.textContent = 'Bitte alle Felder korrekt ausfuellen (Benutzername 3-20 Zeichen, gueltige E-Mail, Passwort min. 6).';
                 registerGlobalMsg.classList.add('error');
                 registerGlobalMsg.style.display = 'block';
                 return;
@@ -601,7 +823,7 @@
                 if (res.ok) {
                     registerGlobalMsg.classList.remove('error');
                     registerGlobalMsg.classList.add('success');
-                    registerGlobalMsg.textContent = '✅ Registrierung erfolgreich! Du kannst dich jetzt anmelden.';
+                    registerGlobalMsg.textContent = 'Registrierung erfolgreich! Du kannst dich jetzt anmelden.';
                     registerGlobalMsg.style.display = 'block';
                     loginUsername.value = payload.username;
                     loginPassword.value = '';
@@ -617,7 +839,7 @@
                     registerGlobalMsg.style.display = 'block';
                 }
             } catch {
-                registerGlobalMsg.textContent = 'Netzwerkfehler. Bitte später versuchen.';
+                registerGlobalMsg.textContent = 'Netzwerkfehler. Bitte spaeter versuchen.';
                 registerGlobalMsg.classList.add('error');
                 registerGlobalMsg.style.display = 'block';
             }
