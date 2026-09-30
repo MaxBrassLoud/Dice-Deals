@@ -48,6 +48,8 @@ def create_database():
         c.execute("ALTER TABLE users ADD COLUMN current_room_code TEXT")
     if "avatar_url" not in columns:
         c.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
+    if "display_name" not in columns:
+        c.execute("ALTER TABLE users ADD COLUMN display_name TEXT")
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS friendships (
@@ -89,6 +91,19 @@ def create_database():
         created_at REAL,
         last_used REAL,
         FOREIGN KEY (user_id) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS guest_profiles (
+        guest_token TEXT PRIMARY KEY,
+        username TEXT,
+        avatar_emoji TEXT DEFAULT '🎲',
+        avatar_color TEXT DEFAULT '#3b82f6',
+        avatar_url TEXT,
+        is_customized INTEGER DEFAULT 0,
+        created_at REAL,
+        updated_at REAL
     )
     """)
 
@@ -405,3 +420,83 @@ def clear_room_code_for_game(room_code):
     c.execute("UPDATE users SET current_room_code = NULL WHERE current_room_code = ?", (room_code,))
     conn.commit()
     conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Temporary guest profiles (play without an account)
+# ---------------------------------------------------------------------------
+
+def create_guest_profile(guest_token, username=None, avatar_emoji="🎲", avatar_color="#3b82f6", avatar_url=None):
+    now = time.time()
+    if not username:
+        username = "Spieler" + guest_token[:4].upper()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO guest_profiles
+        (guest_token, username, avatar_emoji, avatar_color, avatar_url, is_customized, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    """, (guest_token, username, avatar_emoji, avatar_color, avatar_url, now, now))
+    conn.commit()
+    conn.close()
+    return {
+        "guest_token": guest_token,
+        "username": username,
+        "avatar_emoji": avatar_emoji,
+        "avatar_color": avatar_color,
+        "avatar_url": avatar_url,
+        "is_customized": 0,
+    }
+
+
+def get_guest_profile(guest_token):
+    if not guest_token:
+        return None
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT guest_token, username, avatar_emoji, avatar_color, avatar_url, is_customized
+        FROM guest_profiles WHERE guest_token = ?
+    """, (guest_token,))
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "guest_token": row[0],
+        "username": row[1] or "Spieler",
+        "avatar_emoji": row[2] or "🎲",
+        "avatar_color": row[3] or "#3b82f6",
+        "avatar_url": row[4],
+        "is_customized": bool(row[5]),
+    }
+
+
+def update_guest_profile(guest_token, username, avatar_emoji, avatar_color, avatar_url=None):
+    now = time.time()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        UPDATE guest_profiles
+        SET username = ?, avatar_emoji = ?, avatar_color = ?, avatar_url = ?,
+            is_customized = 1, updated_at = ?
+        WHERE guest_token = ?
+    """, (username, avatar_emoji, avatar_color, avatar_url, now, guest_token))
+    if c.rowcount == 0:
+        c.execute("""
+            INSERT INTO guest_profiles
+            (guest_token, username, avatar_emoji, avatar_color, avatar_url, is_customized, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
+        """, (guest_token, username, avatar_emoji, avatar_color, avatar_url, now, now))
+    conn.commit()
+    conn.close()
+    return get_guest_profile(guest_token)
+
+
+def update_user_display_name(user_id, display_name):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET display_name = ? WHERE id = ?", (display_name, user_id))
+    conn.commit()
+    conn.close()
+    return c.rowcount > 0

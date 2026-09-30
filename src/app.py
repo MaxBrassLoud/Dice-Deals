@@ -2,12 +2,13 @@ import os
 import hashlib
 import json
 import random
+import secrets
 import string
 import threading
 import time
 import requests
 from functools import wraps
-from flask import Flask, request, jsonify, render_template, redirect, session
+from flask import Flask, request, jsonify, render_template, redirect, session, g
 from database import (create_database, create_user, get_user_by_username,
                       get_user_by_id, update_user_avatar, update_last_seen,
                       search_users, send_friend_request, respond_friend_request,
@@ -17,7 +18,9 @@ from database import (create_database, create_user, get_user_by_username,
                       create_auth_token, get_user_by_token, delete_auth_token,
                       save_game, load_games, get_game_state, touch_game,
                       delete_game, get_stale_game_codes,
-                      update_user_room, clear_room_code_for_game)
+                      update_user_room, clear_room_code_for_game,
+                      create_guest_profile, get_guest_profile, update_guest_profile,
+                      update_user_display_name)
 from ID_Creator import create_user_id
 from game_logic import Game, active_games
 from dotenv import load_dotenv
@@ -86,7 +89,7 @@ def parse_int_field(value, default=0):
 # Persistence helpers
 # ---------------------------------------------------------------------------
 
-GAME_IDLE_TIMEOUT = 300
+GAME_IDLE_TIMEOUT = 600  # 10 Minuten ohne Aktivität
 _last_game_cleanup = 0.0
 _cleanup_thread_started = False
 
@@ -176,10 +179,13 @@ def start_game_cleanup_thread():
 
 def set_session_user(user):
     session["user_id"] = user[0]
-    session["username"] = user[1]
+    display_name = user[15] if len(user) > 15 and user[15] else None
+    session["username"] = display_name or user[1]
     session["avatar_emoji"] = user[7] if len(user) > 7 and user[7] else "\U0001F3B2"
     session["avatar_color"] = user[8] if len(user) > 8 and user[8] else "#3b82f6"
     session["avatar_url"] = user[14] if len(user) > 14 and user[14] else None
+    session["is_guest"] = False
+    session.pop("profile_customized", None)
     saved_room = user[13] if len(user) > 13 and user[13] else None
     if saved_room:
         session["room_code"] = saved_room
@@ -200,20 +206,72 @@ def set_remember_cookie(response, token):
     return response
 
 
+def set_guest_session(profile):
+    session["user_id"] = "guest:" + profile["guest_token"]
+    session["username"] = profile.get("username") or "Spieler"
+    session["avatar_emoji"] = profile.get("avatar_emoji") or "\U0001F3B2"
+    session["avatar_color"] = profile.get("avatar_color") or "#3b82f6"
+    session["avatar_url"] = profile.get("avatar_url")
+    session["is_guest"] = True
+    session["profile_customized"] = bool(profile.get("is_customized"))
+    session["guest_token"] = profile["guest_token"]
+
+
+def merge_guest_profile_into_user(guest_token, user_id):
+    profile = get_guest_profile(guest_token) if guest_token else None
+    if not profile or not profile.get("is_customized"):
+        return None
+    update_user_avatar(user_id, profile["avatar_emoji"], profile["avatar_color"], profile["avatar_url"])
+    update_user_display_name(user_id, profile["username"])
+    return get_user_by_id(user_id)
+
+
+def ensure_guest_session():
+    if "user_id" in session:
+        return
+    guest_token = request.cookies.get("guest_token")
+    profile = get_guest_profile(guest_token) if guest_token else None
+    if not profile:
+        guest_token = secrets.token_urlsafe(24)
+        profile = create_guest_profile(guest_token)
+        g.guest_token_to_set = guest_token
+    set_guest_session(profile)
+
+
 @app.before_request
 def auto_login_and_cleanup():
+    path = request.path or ""
+    is_auth_path = (path.startswith("/login") or path.startswith("/api/v1/login")
+                    or path.startswith("/logout") or path.startswith("/static/")
+                    or path == "/favicon.ico")
+
     if "user_id" not in session:
         token = request.cookies.get("remember_token")
         if token:
             user = get_user_by_token(token)
             if user:
                 set_session_user(user)
+
+    if "user_id" not in session and not is_auth_path:
+        ensure_guest_session()
+
     if time.time() - _last_game_cleanup > 60:
         cleanup_stale_games()
 
 
 @app.after_request
 def save_game_after_request(response):
+    guest_token = getattr(g, "guest_token_to_set", None)
+    if guest_token:
+        response.set_cookie(
+            "guest_token",
+            guest_token,
+            max_age=60 * 60 * 24 * 365,
+            httponly=True,
+            samesite="Lax",
+            secure=request.is_secure,
+            path="/",
+        )
     code = session.get("room_code")
     if code and code in active_games:
         persist_game(code, active_games[code])
@@ -232,12 +290,14 @@ def home():
                            username=session["username"],
                            avatar_emoji=session.get("avatar_emoji", "🎲"),
                            avatar_color=session.get("avatar_color", "#3b82f6"),
-                           avatar_url=session.get("avatar_url"))
+                           avatar_url=session.get("avatar_url"),
+                           is_guest=session.get("is_guest", False),
+                           profile_customized=session.get("profile_customized", False))
 
 
 @app.route('/login')
 def login_page():
-    if "user_id" in session:
+    if "user_id" in session and not session.get("is_guest"):
         return redirect("/")
     return render_template("login.html")
 
@@ -293,6 +353,9 @@ def login():
     user = get_user_by_username(username)
     if not user or user[2] != hash_password(password):
         return jsonify({"error": "Ungueltige Anmeldedaten"}), 401
+    merged_user = merge_guest_profile_into_user(session.get("guest_token"), user[0])
+    if merged_user:
+        user = merged_user
     set_session_user(user)
     token = create_auth_token(user[0])
     response = jsonify({"message": "Login erfolgreich"})
@@ -352,6 +415,9 @@ def discord_callback():
         user_id = user[0]
         update_user_discord_info(user_id, discord_id, discord_avatar_url, username)
     refreshed = get_user_by_id(user_id)
+    merged_user = merge_guest_profile_into_user(session.get("guest_token"), user_id)
+    if merged_user:
+        refreshed = merged_user
     if refreshed:
         set_session_user(refreshed)
     else:
@@ -746,6 +812,7 @@ def user_profile():
         "avatar_emoji": user[7] if len(user) > 7 and user[7] else "🎲",
         "avatar_color": user[8] if len(user) > 8 and user[8] else "#3b82f6",
         "avatar_url": user[14] if len(user) > 14 else None,
+        "display_name": user[15] if len(user) > 15 else None,
         "discord_username": user[12] if len(user) > 12 else None,
         "discord_avatar": user[11] if len(user) > 11 else None,
     })
@@ -758,12 +825,29 @@ def set_avatar():
     emoji = data.get("emoji", "🎲").strip()
     color = data.get("color", "#3b82f6").strip()
     avatar_url = (data.get("avatar_url") or "").strip() or None
+    username = data.get("username", session.get("username", "")).strip()
     if not emoji or len(emoji) > 4:
         return jsonify({"error": "Ungueltiges Emoji"}), 400
     if not color or len(color) > 20:
         return jsonify({"error": "Ungueltige Farbe"}), 400
     if avatar_url and not (avatar_url.startswith("https://cdn.discordapp.com/") or avatar_url.startswith("https://media.discordapp.net/")):
         return jsonify({"error": "Ungueltige Profilbild-URL"}), 400
+    if session.get("is_guest"):
+        if len(username) < 3 or len(username) > 20:
+            return jsonify({"error": "Benutzername muss 3-20 Zeichen lang sein"}), 400
+        if not all(ch.isalnum() or ch in " _-." for ch in username):
+            return jsonify({"error": "Benutzername enthaelt ungueltige Zeichen"}), 400
+        profile = update_guest_profile(session.get("guest_token"), username, emoji, color, avatar_url)
+        if not profile:
+            return jsonify({"error": "Fehler beim Speichern"}), 500
+        set_guest_session(profile)
+        return jsonify({
+            "message": "Gastprofil aktualisiert",
+            "username": profile["username"],
+            "avatar_emoji": profile["avatar_emoji"],
+            "avatar_color": profile["avatar_color"],
+            "avatar_url": profile["avatar_url"],
+        }), 200
     success = update_user_avatar(session["user_id"], emoji, color, avatar_url)
     if not success:
         return jsonify({"error": "Fehler beim Speichern"}), 500

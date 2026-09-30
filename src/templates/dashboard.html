@@ -87,6 +87,17 @@
         .avatar img, .avatar-preview img, .friend-avatar img {
             width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
         }
+        .guest-badge {
+            display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px;
+            background: rgba(234,179,8,.15); border: 1px solid rgba(234,179,8,.4);
+            color: #eab308; font-size: 12px; font-weight: 700; vertical-align: middle; cursor: pointer;
+        }
+        .guest-username-input {
+            width: 100%; padding: 10px 12px; background: var(--bg); border: 1.5px solid var(--border);
+            border-radius: 8px; color: var(--text); font-size: 14px; font-family: inherit; outline: none;
+            margin-bottom: 16px;
+        }
+        .guest-username-input:focus { border-color: var(--accent); }
         .avatar-edit-hint {
             position: absolute;
             bottom: -2px;
@@ -653,7 +664,7 @@
     <!-- Header -->
     <div class="header">
         <div class="greeting">
-            <h1>Hallo, {{ username }}</h1>
+            <h1>Hallo, <span id="greeting-name">{{ username }}</span>{% if is_guest %}<span class="guest-badge" onclick="event.stopPropagation(); openAvatarModal()">Gast</span>{% endif %}</h1>
             <p>Bereit fuer eine Runde Dice Deals?</p>
         </div>
         <div class="avatar-wrap" onclick="openAvatarModal()" title="Avatar anpassen">
@@ -738,10 +749,17 @@
     <div class="card">
         <div class="card-label">Schnellzugriff</div>
         <div class="actions-grid">
+            {% if is_guest %}
+            <a href="/login" class="action-btn">
+                <span class="icon">🔑</span>
+                <span>Einloggen</span>
+            </a>
+            {% else %}
             <a href="/logout" class="action-btn">
                 <span class="icon">🚪</span>
                 <span>Abmelden</span>
             </a>
+            {% endif %}
             <div class="action-btn" onclick="openAvatarModal()">
                 <span class="icon">🎨</span>
                 <span>Avatar anpassen</span>
@@ -756,8 +774,12 @@
 <!-- Avatar Modal -->
 <div class="avatar-modal-overlay" id="avatar-modal" onclick="if(event.target===this)closeAvatarModal()">
     <div class="avatar-modal">
-        <h2>Avatar anpassen</h2>
-        <div class="subtitle">Waehle dein Emoji und deine Farbe</div>
+        <h2 id="avatar-modal-title">Avatar anpassen</h2>
+        <div class="subtitle" id="avatar-modal-subtitle">Waehle dein Emoji und deine Farbe</div>
+        <div id="guest-username-section" style="display:none;">
+            <div class="section-label">Benutzername</div>
+            <input class="guest-username-input" id="guest-username-input" maxlength="20" placeholder="Dein Name">
+        </div>
         <div class="avatar-preview" id="avatar-preview" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
             {% if avatar_url %}<img src="{{ avatar_url }}" alt="Avatar">{% else %}{{ avatar_emoji }}{% endif %}
         </div>
@@ -765,8 +787,10 @@
         <div class="emoji-grid" id="emoji-grid"></div>
         <div class="section-label">Farbe</div>
         <div class="color-grid" id="avatar-color-grid"></div>
-        <div class="section-label">Discord-Profilbild</div>
-        <div id="discord-avatar-section"></div>
+        <div id="discord-avatar-wrapper">
+            <div class="section-label">Discord-Profilbild</div>
+            <div id="discord-avatar-section"></div>
+        </div>
         <div class="modal-footer">
             <button class="btn" onclick="closeAvatarModal()">Abbrechen</button>
             <button class="btn primary" onclick="saveAvatar()">Speichern</button>
@@ -808,6 +832,9 @@
     let selEmoji = "{{ avatar_emoji }}";
     let selColor = "{{ avatar_color }}";
     let selAvatarUrl = "{{ avatar_url or '' }}";
+    const IS_GUEST = {{ 'true' if is_guest else 'false' }};
+    let profileCustomized = {{ 'true' if profile_customized else 'false' }};
+    let guestUsername = "{{ username }}";
     let discordInfo = {};
 
     function avatarMarkup(u) {
@@ -819,6 +846,23 @@
         selEmoji = "{{ avatar_emoji }}";
         selColor = "{{ avatar_color }}";
         selAvatarUrl = "{{ avatar_url or '' }}";
+        const title = document.getElementById("avatar-modal-title");
+        const subtitle = document.getElementById("avatar-modal-subtitle");
+        const guestSection = document.getElementById("guest-username-section");
+        const discordWrapper = document.getElementById("discord-avatar-wrapper");
+        if (IS_GUEST) {
+            if (title) title.textContent = "Gastprofil bearbeiten";
+            if (subtitle) subtitle.textContent = "Waehle deinen Namen, Emoji und Farbe";
+            if (guestSection) guestSection.style.display = "block";
+            if (discordWrapper) discordWrapper.style.display = "none";
+            const nameInput = document.getElementById("guest-username-input");
+            if (nameInput) nameInput.value = guestUsername;
+        } else {
+            if (title) title.textContent = "Avatar anpassen";
+            if (subtitle) subtitle.textContent = "Waehle dein Emoji und deine Farbe";
+            if (guestSection) guestSection.style.display = "none";
+            if (discordWrapper) discordWrapper.style.display = "block";
+        }
         renderEmojiGrid();
         renderColorGrid();
         renderDiscordAvatarOption();
@@ -891,23 +935,43 @@
     }
 
     async function saveAvatar() {
+        if (IS_GUEST) {
+            const nameInput = document.getElementById("guest-username-input");
+            const newName = nameInput ? nameInput.value.trim() : guestUsername;
+            if (newName.length < 3 || newName.length > 20) {
+                alert("Bitte waehle einen Benutzernamen mit 3-20 Zeichen.");
+                return;
+            }
+            guestUsername = newName;
+        }
         try {
+            const payload = { emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null };
+            if (IS_GUEST) payload.username = guestUsername;
             const res = await fetch("/api/user/avatar", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null })
+                body: JSON.stringify(payload)
             });
-            if (res.ok) {
-                const header = document.getElementById("header-avatar");
-                if (selAvatarUrl) {
-                    header.style.background = "transparent";
-                    header.innerHTML = `<img src="${selAvatarUrl}" alt="Avatar">`;
-                } else {
-                    header.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
-                    header.textContent = selEmoji;
-                }
-                closeAvatarModal();
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                alert(data.error || "Speichern fehlgeschlagen");
+                return;
             }
+            if (IS_GUEST) {
+                profileCustomized = true;
+                if (data.username) guestUsername = data.username;
+                const greeting = document.getElementById("greeting-name");
+                if (greeting) greeting.textContent = guestUsername;
+            }
+            const header = document.getElementById("header-avatar");
+            if (selAvatarUrl) {
+                header.style.background = "transparent";
+                header.innerHTML = `<img src="${selAvatarUrl}" alt="Avatar">`;
+            } else {
+                header.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+                header.textContent = selEmoji;
+            }
+            closeAvatarModal();
         } catch(e) { console.error(e); }
     }
 
@@ -925,8 +989,7 @@
     function showActiveBanner(code) {
         document.getElementById('active-room-banner').style.display = 'flex';
         document.getElementById('banner-code').innerHTML = `<span class="copy-hint">Klicken zum Kopieren</span>${code}`;
-        // Keep the room card visible so a different room code can always be entered.
-        document.getElementById('room-card').style.display = 'block';
+        document.getElementById('room-card').style.display = 'none';
     }
 
     function hideActiveBanner() {
@@ -1226,6 +1289,9 @@
 
     // ── Discord Integration ──
     loadDiscordAvatarInfo();
+    if (IS_GUEST && !profileCustomized) {
+        setTimeout(openAvatarModal, 600);
+    }
 </script>
 </body>
 </html>
