@@ -398,7 +398,7 @@
                 slot.className = 'player-slot filled';
                 slot.style.setProperty('--slot-color', p.avatar_color || '#3b82f6');
                 slot.innerHTML = `
-                    <div class="avatar">${p.avatar_emoji || '🎲'}</div>
+                    <div class="avatar">${p.avatar_url ? `<img src="${p.avatar_url}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;display:block;">` : (p.avatar_emoji || '🎲')}</div>
                     <div class="name">${p.username}</div>
                     <div class="status">${p.is_bankrupt ? 'Bankrott' : 'Bereit'}</div>
                 `;

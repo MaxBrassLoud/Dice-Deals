@@ -1,8 +1,10 @@
 import random
+import time
 from dataclasses import dataclass, field
 from typing import Optional, List
 
 GROUP_ORDER = ["brown","lightblue","pink","orange","red","yellow","green","darkblue","station","utility"]
+TURN_TIMEOUT_SECONDS = 20
 
 CHANCE_CARDS = [
     {"text": "Gehe zu Los. Erhalte 200 €.", "action": "goto", "value": 0},
@@ -30,12 +32,13 @@ COMMUNITY_CARDS = [
 
 
 class Player:
-    def __init__(self, user_id: str, username: str, color: str, avatar_emoji: str = "🎲", avatar_color: str = "#3b82f6"):
+    def __init__(self, user_id: str, username: str, color: str, avatar_emoji: str = "🎲", avatar_color: str = "#3b82f6", avatar_url: str = ""):
         self.user_id = user_id
         self.username = username
         self.color = color
         self.avatar_emoji = avatar_emoji
         self.avatar_color = avatar_color
+        self.avatar_url = avatar_url or ""
         self.money = 1500
         self.position = 0
         self.properties: List["Field"] = []
@@ -52,6 +55,7 @@ class Player:
             "color": self.color,
             "avatar_emoji": self.avatar_emoji,
             "avatar_color": self.avatar_color,
+            "avatar_url": self.avatar_url,
             "money": self.money,
             "position": self.position,
             "properties": [p.name for p in self.properties],
@@ -168,6 +172,8 @@ class Game:
         self.turn_phase = "roll"
         self.last_event = None
         self.last_move: Optional[dict] = None
+        self.turn_started_at = time.time()
+        self.movement_this_turn = False
 
 
         self.pending_rent: Optional[dict] = None
@@ -194,7 +200,7 @@ class Game:
 
 
 
-    def add_player(self, user_id, username, color, avatar_emoji="🎲", avatar_color="#3b82f6") -> bool:
+    def add_player(self, user_id, username, color, avatar_emoji="🎲", avatar_color="#3b82f6", avatar_url="") -> bool:
         existing = next((p for p in self.players if p.user_id == user_id), None)
         if existing and existing.is_disconnected:
             existing.is_disconnected = False
@@ -202,6 +208,7 @@ class Game:
             existing.color = color
             existing.avatar_emoji = avatar_emoji
             existing.avatar_color = avatar_color
+            existing.avatar_url = avatar_url or ""
             self.status_message = f"{username} ist zurückgekehrt!"
             self._sys_chat(f"{username} ist dem Spiel wieder beigetreten! 🎉")
             return True
@@ -210,13 +217,17 @@ class Game:
         if any(p.user_id == user_id for p in self.players):
             return False
 
-        self.players.append(Player(user_id, username, color, avatar_emoji, avatar_color))
+        self.players.append(Player(user_id, username, color, avatar_emoji, avatar_color, avatar_url))
+        if len(self.players) <= 2:
+            self._reset_turn_timer()
         self.status_message = f"{username} ist dem Spiel beigetreten!"
         self._sys_chat(f"{username} ist dem Spiel beigetreten! 🎉")
         return True
 
     def _sys_chat(self, text: str):
         self.chat_messages.append({"type": "system", "text": text})
+        if len(self.chat_messages) > 200:
+            self.chat_messages = self.chat_messages[-200:]
 
 
 
@@ -240,6 +251,8 @@ class Game:
         else:
             self.double_roll_count = 0
         self._move_player(player, d1 + d2)
+        if is_double and self.can_buy:
+            self.status_message += " Du kannst kaufen oder erneut würfeln."
         self.turn_phase = "action" if not is_double else "roll"
 
     def _handle_jail_roll(self, player, d1, d2, is_double):
@@ -263,6 +276,7 @@ class Game:
                 self.turn_phase = "end"
 
     def _move_player(self, player, steps):
+        self.movement_this_turn = True
         old_pos = player.position
         player.position = (player.position + steps) % 40
 
@@ -384,6 +398,8 @@ class Game:
     def _execute_card(self, player: "Player", card: dict):
         action = card["action"]
         value  = card["value"]
+        if action in ("goto", "jail", "move", "next_station"):
+            self.movement_this_turn = True
         self.status_message = f"Karte: {card['text']}"
         if action == "money":
             player.money += value
@@ -915,6 +931,45 @@ class Game:
                 self.turn_phase = "roll"
         return {"success": True}
 
+    def _reset_turn_timer(self):
+        self.turn_started_at = time.time()
+        self.movement_this_turn = False
+
+    def _turn_deadline(self):
+        if not self.players:
+            return None
+        active = [p for p in self.players if not p.is_bankrupt and not p.is_disconnected]
+        if len(active) < 2:
+            return None
+        if self.movement_this_turn:
+            return None
+        if self.pending_rent or self.pending_tax or self.pending_card or self.active_trade:
+            return None
+        if self.last_event and self.last_event.get("type") in ("winner", "draw"):
+            return None
+        return self.turn_started_at + TURN_TIMEOUT_SECONDS
+
+    def end_turn(self):
+        self.dice_result = None
+        self.can_buy = False
+        self.turn_phase = "roll"
+        self.last_move = None
+        self._next_player()
+        current = self.players[self.current_player_index] if self.players else None
+        if current:
+            self.status_message = f"{current.username} ist dran."
+        self._reset_turn_timer()
+
+    def check_turn_timeout(self):
+        deadline = self._turn_deadline()
+        if deadline is None or time.time() < deadline:
+            return False
+        self.end_turn()
+        current = self.players[self.current_player_index] if self.players else None
+        if current:
+            self.status_message = f"Zeit abgelaufen - {current.username} ist dran."
+        return True
+
     def _next_player(self):
         active = [p for p in self.players if not p.is_bankrupt and not p.is_disconnected]
         if not active:
@@ -924,6 +979,7 @@ class Game:
         while self.players[idx].is_bankrupt or self.players[idx].is_disconnected:
             idx = (idx + 1) % len(self.players)
         self.current_player_index = idx
+        self._reset_turn_timer()
 
     def _player_to_dict(self, player: Player) -> dict:
         data = player.to_dict()
@@ -978,6 +1034,124 @@ class Game:
         data["properties"] = props_info
         return data
 
+    def to_storage_dict(self) -> dict:
+        return {
+            "current_player_index": self.current_player_index,
+            "dice_result": list(self.dice_result) if self.dice_result else None,
+            "status_message": self.status_message,
+            "can_buy": self.can_buy,
+            "double_roll_count": self.double_roll_count,
+            "chance_deck": self.chance_deck,
+            "community_deck": self.community_deck,
+            "turn_phase": self.turn_phase,
+            "last_event": self.last_event,
+            "last_move": self.last_move,
+            "pending_rent": self.pending_rent,
+            "incoming_rent_offer": self.incoming_rent_offer,
+            "pending_tax": self.pending_tax,
+            "active_trade": self.active_trade,
+            "free_parking_pot": self.free_parking_pot,
+            "pending_card": self.pending_card,
+            "chat_messages": self.chat_messages,
+            "host_id": self.host_id,
+            "host_username": self.host_username,
+            "turn_started_at": self.turn_started_at,
+            "movement_this_turn": self.movement_this_turn,
+            "players": [{
+                "user_id": p.user_id,
+                "username": p.username,
+                "color": p.color,
+                "avatar_emoji": p.avatar_emoji,
+                "avatar_color": p.avatar_color,
+                "avatar_url": p.avatar_url,
+                "money": p.money,
+                "position": p.position,
+                "in_jail": p.in_jail,
+                "jail_turns": p.jail_turns,
+                "get_out_of_jail_cards": p.get_out_of_jail_cards,
+                "is_bankrupt": p.is_bankrupt,
+                "is_disconnected": p.is_disconnected,
+            } for p in self.players],
+            "board": [{
+                "owner_id": f.owner.user_id if f.owner else None,
+                "houses": f.houses,
+                "is_mortgaged": f.is_mortgaged,
+            } for f in self.board],
+        }
+
+    @classmethod
+    def from_storage_dict(cls, data: dict) -> "Game":
+        game = cls()
+        game.board = _create_board()
+        game.current_player_index = int(data.get("current_player_index", 0) or 0)
+
+        dice = data.get("dice_result")
+        game.dice_result = tuple(dice) if dice else None
+
+        players = []
+        for pd in data.get("players", []):
+            p = Player(
+                pd.get("user_id", ""),
+                pd.get("username", ""),
+                pd.get("color", "blue"),
+                pd.get("avatar_emoji", "🎲"),
+                pd.get("avatar_color", "#3b82f6"),
+                pd.get("avatar_url", ""),
+            )
+            p.money = int(pd.get("money", 1500) or 0)
+            p.position = int(pd.get("position", 0) or 0)
+            p.in_jail = bool(pd.get("in_jail", False))
+            p.jail_turns = int(pd.get("jail_turns", 0) or 0)
+            p.get_out_of_jail_cards = int(pd.get("get_out_of_jail_cards", 0) or 0)
+            p.is_bankrupt = bool(pd.get("is_bankrupt", False))
+            p.is_disconnected = bool(pd.get("is_disconnected", False))
+            players.append(p)
+        game.players = players
+        if players:
+            game.current_player_index = max(0, min(game.current_player_index, len(players) - 1))
+        else:
+            game.current_player_index = 0
+
+        player_by_id = {p.user_id: p for p in players}
+        for idx, bd in enumerate(data.get("board", [])):
+            if idx >= len(game.board):
+                break
+            field = game.board[idx]
+            owner_id = bd.get("owner_id")
+            field.owner = player_by_id.get(owner_id)
+            field.houses = int(bd.get("houses", 0) or 0)
+            field.is_mortgaged = bool(bd.get("is_mortgaged", False))
+
+        for p in players:
+            p.properties = []
+        for field in game.board:
+            if field.owner is not None:
+                field.owner.properties.append(field)
+
+        game.chance_deck = list(data.get("chance_deck") or CHANCE_CARDS)
+        game.community_deck = list(data.get("community_deck") or COMMUNITY_CARDS)
+        game.status_message = data.get("status_message", "Warte auf Spieler...")
+        game.can_buy = bool(data.get("can_buy", False))
+        game.double_roll_count = int(data.get("double_roll_count", 0) or 0)
+        game.turn_phase = data.get("turn_phase", "roll")
+        game.last_event = data.get("last_event")
+        game.last_move = data.get("last_move")
+        game.pending_rent = data.get("pending_rent")
+        game.incoming_rent_offer = data.get("incoming_rent_offer")
+        game.pending_tax = data.get("pending_tax")
+        game.active_trade = data.get("active_trade")
+        game.free_parking_pot = int(data.get("free_parking_pot", 0) or 0)
+        game.pending_card = data.get("pending_card")
+        game.chat_messages = list(data.get("chat_messages") or [])
+        game.host_id = data.get("host_id", "")
+        game.host_username = data.get("host_username", "")
+        game.movement_this_turn = bool(data.get("movement_this_turn", False))
+        if game.movement_this_turn:
+            game.turn_started_at = float(data.get("turn_started_at") or time.time())
+        else:
+            game.turn_started_at = time.time()
+        return game
+
     def to_dict(self) -> dict:
         current = self.players[self.current_player_index] if self.players else None
         return {
@@ -989,6 +1163,8 @@ class Game:
             "status": self.status_message,
             "can_buy": self.can_buy,
             "turn_phase": self.turn_phase,
+            "turn_deadline": self._turn_deadline(),
+            "server_time": time.time(),
             "last_event": self.last_event,
             "pending_rent": self.pending_rent,
             "incoming_rent_offer": self.incoming_rent_offer,

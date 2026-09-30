@@ -84,6 +84,9 @@
             transform: scale(1.08);
             border-color: var(--accent);
         }
+        .avatar img, .avatar-preview img, .friend-avatar img {
+            width: 100%; height: 100%; border-radius: 50%; object-fit: cover; display: block;
+        }
         .avatar-edit-hint {
             position: absolute;
             bottom: -2px;
@@ -149,6 +152,7 @@
             background: linear-gradient(135deg, transparent, rgba(59,130,246,0.03));
             opacity: 0;
             transition: opacity 0.3s;
+            pointer-events: none;
         }
         .room-option:hover { border-color: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
         .room-option:hover::before { opacity: 1; }
@@ -184,6 +188,7 @@
             background: linear-gradient(135deg, transparent, rgba(255,255,255,0.08), transparent);
             transform: translateX(-100%);
             transition: transform 0.5s;
+            pointer-events: none;
         }
         .btn:hover::after { transform: translateX(100%); }
         .btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -349,6 +354,22 @@
             margin: 0 auto 20px;
             border: 3px solid rgba(255,255,255,0.1);
             transition: all 0.3s;
+            overflow: hidden;
+        }
+        .discord-avatar-btn {
+            width: 100%; display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+            border-radius: 10px; border: 1px solid var(--border); background: var(--bg);
+            color: var(--text); cursor: pointer; font-family: inherit; text-align: left;
+            transition: all .15s; margin-bottom: 8px;
+        }
+        .discord-avatar-btn:hover { border-color: #5865f2; }
+        .discord-avatar-btn.selected { border-color: #5865f2; background: rgba(88,101,242,.12); }
+        .discord-avatar-btn img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+        .discord-avatar-btn span { font-size: 13px; font-weight: 600; }
+        .discord-link-btn {
+            display: block; width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #5865f2;
+            background: rgba(88,101,242,.12); color: #a5b4fc; text-decoration: none; text-align: center;
+            font-size: 13px; font-weight: 600;
         }
 
         .section-label {
@@ -439,6 +460,7 @@
             font-size: 18px;
             flex-shrink: 0;
             position: relative;
+            overflow: hidden;
         }
         .friend-online-dot {
             position: absolute;
@@ -636,7 +658,7 @@
         </div>
         <div class="avatar-wrap" onclick="openAvatarModal()" title="Avatar anpassen">
             <div class="avatar" id="header-avatar" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
-                {{ avatar_emoji }}
+                {% if avatar_url %}<img src="{{ avatar_url }}" alt="Avatar">{% else %}{{ avatar_emoji }}{% endif %}
             </div>
             <div class="avatar-edit-hint">✏</div>
         </div>
@@ -694,8 +716,6 @@
     <!-- Friend Invites Banner -->
     <div id="friend-invites-banner" style="display:none;"></div>
 
-    <!-- Discord Connected Banner -->
-    <div id="discord-banner" style="display:none;"></div>
 
     <!-- Friends Card -->
     <div class="card" id="friends-card">
@@ -729,17 +749,6 @@
         </div>
     </div>
 
-    <!-- Discord Card -->
-    <div class="card" id="discord-card">
-        <div class="card-label" style="display:flex;align-items:center;justify-content:space-between;">
-            <span style="display:flex;align-items:center;gap:6px;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="#5865f2" xmlns="http://www.w3.org/2000/svg"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.25.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.31.61.68 1.19 1.07 1.74.01.02.04.03.07.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.93c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/></svg>
-                Discord
-            </span>
-        </div>
-
-        <div id="discord-content"></div>
-    </div>
 
     <div class="footer">Dice Deals Online · Viel Spass beim Spielen!</div>
 </div>
@@ -750,12 +759,14 @@
         <h2>Avatar anpassen</h2>
         <div class="subtitle">Waehle dein Emoji und deine Farbe</div>
         <div class="avatar-preview" id="avatar-preview" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
-            {{ avatar_emoji }}
+            {% if avatar_url %}<img src="{{ avatar_url }}" alt="Avatar">{% else %}{{ avatar_emoji }}{% endif %}
         </div>
         <div class="section-label">Emoji</div>
         <div class="emoji-grid" id="emoji-grid"></div>
         <div class="section-label">Farbe</div>
         <div class="color-grid" id="avatar-color-grid"></div>
+        <div class="section-label">Discord-Profilbild</div>
+        <div id="discord-avatar-section"></div>
         <div class="modal-footer">
             <button class="btn" onclick="closeAvatarModal()">Abbrechen</button>
             <button class="btn primary" onclick="saveAvatar()">Speichern</button>
@@ -796,12 +807,21 @@
 
     let selEmoji = "{{ avatar_emoji }}";
     let selColor = "{{ avatar_color }}";
+    let selAvatarUrl = "{{ avatar_url or '' }}";
+    let discordInfo = {};
+
+    function avatarMarkup(u) {
+        if (u && u.avatar_url) return `<img src="${u.avatar_url}" alt="">`;
+        return (u && u.avatar_emoji) || "🎲";
+    }
 
     function openAvatarModal() {
         selEmoji = "{{ avatar_emoji }}";
         selColor = "{{ avatar_color }}";
+        selAvatarUrl = "{{ avatar_url or '' }}";
         renderEmojiGrid();
         renderColorGrid();
+        renderDiscordAvatarOption();
         updatePreview();
         document.getElementById("avatar-modal").classList.add("show");
     }
@@ -814,9 +834,9 @@
         grid.innerHTML = "";
         AVATAR_EMOJIS.forEach(e => {
             const el = document.createElement("div");
-            el.className = "emoji-opt" + (e === selEmoji ? " selected" : "");
+            el.className = "emoji-opt" + (e === selEmoji && !selAvatarUrl ? " selected" : "");
             el.textContent = e;
-            el.onclick = () => { selEmoji = e; renderEmojiGrid(); updatePreview(); };
+            el.onclick = () => { selEmoji = e; selAvatarUrl = ""; renderEmojiGrid(); renderDiscordAvatarOption(); updatePreview(); };
             grid.appendChild(el);
         });
     }
@@ -831,10 +851,43 @@
             grid.appendChild(el);
         });
     }
+    function renderDiscordAvatarOption() {
+        const el = document.getElementById("discord-avatar-section");
+        if (!el) return;
+        if (discordInfo.has_discord_account && discordInfo.discord_avatar) {
+            const selected = selAvatarUrl === discordInfo.discord_avatar;
+            el.innerHTML = `<button type="button" class="discord-avatar-btn${selected ? " selected" : ""}" onclick="useDiscordAvatar('${discordInfo.discord_avatar}')">
+                <img src="${discordInfo.discord_avatar}" alt="">
+                <span>Discord-Profilbild verwenden</span>
+            </button>`;
+        } else if (discordInfo.has_discord_account) {
+            el.innerHTML = `<p style="font-size:12px;color:var(--text2);">Discord ist verbunden, aber es wurde kein Profilbild gefunden.</p>`;
+        } else {
+            el.innerHTML = `<a class="discord-link-btn" href="/login/discord/link">Discord verbinden, um dein Profilbild zu nutzen</a>`;
+        }
+    }
+    function useDiscordAvatar(url) {
+        selAvatarUrl = url;
+        updatePreview();
+        renderEmojiGrid();
+        renderDiscordAvatarOption();
+    }
+    async function loadDiscordAvatarInfo() {
+        try {
+            const res = await fetch("/api/discord/info");
+            discordInfo = await res.json();
+            renderDiscordAvatarOption();
+        } catch(e) { console.error(e); }
+    }
     function updatePreview() {
         const preview = document.getElementById("avatar-preview");
-        preview.textContent = selEmoji;
-        preview.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+        if (selAvatarUrl) {
+            preview.style.background = "transparent";
+            preview.innerHTML = `<img src="${selAvatarUrl}" alt="Avatar">`;
+        } else {
+            preview.textContent = selEmoji;
+            preview.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+        }
     }
 
     async function saveAvatar() {
@@ -842,12 +895,17 @@
             const res = await fetch("/api/user/avatar", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ emoji: selEmoji, color: selColor })
+                body: JSON.stringify({ emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null })
             });
             if (res.ok) {
                 const header = document.getElementById("header-avatar");
-                header.textContent = selEmoji;
-                header.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+                if (selAvatarUrl) {
+                    header.style.background = "transparent";
+                    header.innerHTML = `<img src="${selAvatarUrl}" alt="Avatar">`;
+                } else {
+                    header.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+                    header.textContent = selEmoji;
+                }
                 closeAvatarModal();
             }
         } catch(e) { console.error(e); }
@@ -867,7 +925,8 @@
     function showActiveBanner(code) {
         document.getElementById('active-room-banner').style.display = 'flex';
         document.getElementById('banner-code').innerHTML = `<span class="copy-hint">Klicken zum Kopieren</span>${code}`;
-        document.getElementById('room-card').style.display = 'none';
+        // Keep the room card visible so a different room code can always be entered.
+        document.getElementById('room-card').style.display = 'block';
     }
 
     function hideActiveBanner() {
@@ -962,7 +1021,7 @@
                     el.className = "search-result-item";
                     el.innerHTML = `
                         <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">
-                            ${u.avatar_emoji}
+                            ${avatarMarkup(u)}
                             <div class="friend-online-dot ${u.online ? 'online' : 'offline'}"></div>
                         </div>
                         <div class="friend-info">
@@ -1084,7 +1143,7 @@
             const el = document.createElement("div");
             el.className = "friend-item";
             el.innerHTML = `
-                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${u.avatar_emoji}</div>
+                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${avatarMarkup(u)}</div>
                 <div class="friend-info">
                     <div class="friend-name">${u.username}</div>
                     <div class="friend-status">Moechte dich als Freund</div>
@@ -1109,7 +1168,7 @@
             const el = document.createElement("div");
             el.className = "friend-item";
             el.innerHTML = `
-                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${u.avatar_emoji}</div>
+                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${avatarMarkup(u)}</div>
                 <div class="friend-info">
                     <div class="friend-name">${u.username}</div>
                     <div class="friend-status" style="color:var(--warning);">Anfrage gesendet...</div>
@@ -1123,7 +1182,7 @@
             el.style.animationDelay = `${i * 0.05}s`;
             el.innerHTML = `
                 <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">
-                    ${u.avatar_emoji}
+                    ${avatarMarkup(u)}
                     <div class="friend-online-dot ${u.online ? 'online' : 'offline'}"></div>
                 </div>
                 <div class="friend-info">
@@ -1151,7 +1210,7 @@
             const el = document.createElement("div");
             el.className = "friend-invite-banner";
             el.innerHTML = `
-                <span style="font-size:24px;">🎮</span>
+                <span class="friend-avatar" style="width:34px;height:34px;background:linear-gradient(135deg,${inv.from_avatar_color},${inv.from_avatar_color}cc);">${avatarMarkup({avatar_url: inv.from_avatar_url, avatar_emoji: "🎮"})}</span>
                 <div class="invite-text"><strong>${inv.from_username}</strong> laden dich into Raum <strong>${inv.room_code}</strong> ein</div>
                 <div class="invite-actions">
                     <button class="btn success" onclick="respondInvite(${inv.id}, true)">Beitreten</button>
@@ -1166,108 +1225,7 @@
     setInterval(loadFriends, 10000);
 
     // ── Discord Integration ──
-    let discordInfo = {};
-    let currentRoomCode = null;
-
-    async function loadDiscordInfo() {
-        try {
-            const res = await fetch("/api/discord/info");
-            discordInfo = await res.json();
-            renderDiscordCard();
-        } catch(e) { console.error(e); }
-    }
-
-    function renderDiscordCard() {
-        const container = document.getElementById("discord-content");
-        if (!container) return;
-
-        let html = "";
-
-        // Account linking status
-        if (discordInfo.has_discord_account) {
-            html += `<div class="discord-status" style="margin-bottom:14px;">
-                <div class="dot"></div>
-                <span>Verbunden mit <strong>${discordInfo.discord_username || 'Discord'}</strong></span>
-            </div>`;
-        } else {
-            html += `<div class="discord-section">
-                <a href="/login/discord/link" class="discord-btn" style="text-decoration:none;">
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.25.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.31.61.68 1.19 1.07 1.74.01.02.04.03.07.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02zM8.52 14.93c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12 0 1.17-.83 2.12-1.89 2.12z"/></svg>
-                    Discord-Account verbinden
-                </a>
-            </div>`;
-        }
-
-        // Notification toggle
-        html += `<div class="discord-section">
-            <div class="discord-toggle" onclick="toggleDiscordNotifications()">
-                <div class="discord-toggle-track ${discordInfo.notifications_enabled ? 'active' : ''}" id="discord-toggle-track">
-                    <div class="discord-toggle-thumb"></div>
-                </div>
-                <span style="font-size:13px;">Webhook-Benachrichtigungen</span>
-            </div>
-        </div>`;
-
-        // Webhook URL input
-        html += `<div class="discord-section" id="discord-webhook-section" style="display:${discordInfo.notifications_enabled ? 'block' : 'none'};">
-            <div class="discord-label">Discord Webhook URL</div>
-            <input class="discord-input" id="discord-webhook-input" placeholder="https://discord.com/api/webhooks/..." value="${discordInfo.webhook_url || ''}">
-            <div style="display:flex;gap:8px;margin-top:8px;">
-                <button class="discord-btn filled" style="flex:1;" onclick="saveDiscordWebhook()">Speichern</button>
-                <button class="discord-btn" style="flex:1;" onclick="testDiscordWebhook()">Test senden</button>
-            </div>
-            <p style="font-size:10px;color:var(--text2);margin-top:6px;">Erstelle einen Webhook in deinen Discord-Server Einstellungen > Integrationen > Webhooks</p>
-        </div>`;
-
-        // Share to Discord button (only when in room)
-        html += `<div class="discord-section" id="discord-share-section" style="display:none;">
-            <button class="discord-share-btn" onclick="shareToDiscord()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.33-.35-.76-.54-1.09-.01-.02-.04-.03-.07-.03-1.5.26-2.93.71-4.27 1.33-.01 0-.02.01-.03.02-2.72 4.07-3.47 8.03-3.1 11.95 0 .02.01.04.03.05 1.8 1.32 3.53 2.12 5.24 2.65.03.01.06 0 .07-.02.4-.55.76-1.13 1.07-1.74.02-.04 0-.08-.04-.09-.57-.22-1.11-.48-1.64-.78-.04-.02-.04-.08-.01-.11.11-.08.22-.17.33-.25.02-.02.05-.02.07-.01 3.44 1.57 7.15 1.57 10.55 0 .02-.01.05-.01.07.01.11.09.22.17.33.25.04.03.04.09-.01.11-.52.31-1.07.56-1.64.78-.04.01-.05.06-.04.09.31.61.68 1.19 1.07 1.74.01.02.04.03.07.02 1.72-.53 3.45-1.33 5.25-2.65.02-.01.03-.03.03-.05.44-4.53-.73-8.46-3.1-11.95-.01-.01-.02-.02-.04-.02z"/></svg>
-                Spiel in Discord teilen
-            </button>
-        </div>`;
-
-        // Open in Discord (Activity SDK link)
-        html += `<div class="discord-section">
-            <div class="discord-label">Discord Activity</div>
-            <p style="font-size:11px;color:var(--text2);margin-bottom:8px;">Spiele Dice Deals direkt in Discord mit Freunden!</p>
-            <a href="https://discord.com/developers/activities" target="_blank" class="discord-btn" style="text-decoration:none;">
-                In Discord oeffnen
-            </a>
-        </div>`;
-
-        container.innerHTML = html;
-
-        // Show share button if in room
-        checkRoomForDiscord();
-    }
-
-    async function checkRoomForDiscord() {
-        try {
-            const res = await fetch('/api/room/info');
-            const data = await res.json();
-            const shareSection = document.getElementById("discord-share-section");
-            if (shareSection) {
-                shareSection.style.display = data.in_room ? "block" : "none";
-            }
-            if (data.in_room) currentRoomCode = data.code;
-        } catch(e) {}
-    }
-
-
-
-
-
-
-
-    function shareToDiscord() {
-        if (!currentRoomCode) return;
-        const text = 'Tritt meinem Dice Deals Spiel bei! Raumcode: ' + currentRoomCode + '\n' + window.location.origin + '/dice-deals';
-        navigator.clipboard.writeText(text).then(() => alert('Einladung kopiert!')).catch(() => prompt('Kopiere:', text));
-    }
-
-    // Load Discord settings on page load
-    loadDiscordInfo();
+    loadDiscordAvatarInfo();
 </script>
 </body>
 </html>

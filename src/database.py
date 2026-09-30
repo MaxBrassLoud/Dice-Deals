@@ -1,7 +1,9 @@
+import os
+import secrets
 import sqlite3
 import time
 
-DB_NAME = "database.db"
+DB_NAME = os.path.join(os.path.dirname(os.path.abspath(__file__)), "database.db")
 
 def get_connection():
     return sqlite3.connect(DB_NAME)
@@ -42,6 +44,10 @@ def create_database():
         c.execute("ALTER TABLE users ADD COLUMN discord_avatar TEXT")
     if "discord_username" not in columns:
         c.execute("ALTER TABLE users ADD COLUMN discord_username TEXT")
+    if "current_room_code" not in columns:
+        c.execute("ALTER TABLE users ADD COLUMN current_room_code TEXT")
+    if "avatar_url" not in columns:
+        c.execute("ALTER TABLE users ADD COLUMN avatar_url TEXT")
 
     c.execute("""
     CREATE TABLE IF NOT EXISTS friendships (
@@ -64,6 +70,25 @@ def create_database():
         created_at REAL,
         FOREIGN KEY (inviter_id) REFERENCES users(id),
         FOREIGN KEY (invitee_id) REFERENCES users(id)
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS games (
+        room_code TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        updated_at REAL,
+        last_activity REAL
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS auth_tokens (
+        token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created_at REAL,
+        last_used REAL,
+        FOREIGN KEY (user_id) REFERENCES users(id)
     )
     """)
 
@@ -105,11 +130,11 @@ def get_user_by_id(user_id):
     return user
 
 
-def update_user_avatar(user_id, avatar_emoji, avatar_color):
+def update_user_avatar(user_id, avatar_emoji, avatar_color, avatar_url=None):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("UPDATE users SET avatar_emoji = ?, avatar_color = ? WHERE id = ?",
-              (avatar_emoji, avatar_color, user_id))
+    c.execute("UPDATE users SET avatar_emoji = ?, avatar_color = ?, avatar_url = ? WHERE id = ?",
+              (avatar_emoji, avatar_color, avatar_url, user_id))
     conn.commit()
     conn.close()
     return c.rowcount > 0
@@ -127,14 +152,14 @@ def search_users(query, exclude_user_id=None):
     conn = get_connection()
     c = conn.cursor()
     if exclude_user_id:
-        c.execute("SELECT id, username, avatar_emoji, avatar_color, last_seen FROM users WHERE username LIKE ? AND id != ? LIMIT 20",
+        c.execute("SELECT id, username, avatar_emoji, avatar_color, last_seen, avatar_url FROM users WHERE username LIKE ? AND id != ? LIMIT 20",
                   (f"%{query}%", exclude_user_id))
     else:
-        c.execute("SELECT id, username, avatar_emoji, avatar_color, last_seen FROM users WHERE username LIKE ? LIMIT 20",
+        c.execute("SELECT id, username, avatar_emoji, avatar_color, last_seen, avatar_url FROM users WHERE username LIKE ? LIMIT 20",
                   (f"%{query}%",))
     users = c.fetchall()
     conn.close()
-    return [{"id": u[0], "username": u[1], "avatar_emoji": u[2], "avatar_color": u[3], "online": (time.time() - (u[4] or 0)) < 120} for u in users]
+    return [{"id": u[0], "username": u[1], "avatar_emoji": u[2], "avatar_color": u[3], "online": (time.time() - (u[4] or 0)) < 120, "avatar_url": u[5]} for u in users]
 
 
 def send_friend_request(user_id, friend_id):
@@ -191,7 +216,7 @@ def get_friends(user_id):
     conn = get_connection()
     c = conn.cursor()
     c.execute("""
-        SELECT u.id, u.username, u.avatar_emoji, u.avatar_color, u.last_seen, f.status
+        SELECT u.id, u.username, u.avatar_emoji, u.avatar_color, u.last_seen, f.status, u.avatar_url
         FROM friendships f
         JOIN users u ON (u.id = CASE WHEN f.user_id = ? THEN f.friend_id ELSE f.user_id END)
         WHERE (f.user_id = ? OR f.friend_id = ?) AND f.status IN ('accepted', 'pending')
@@ -204,7 +229,7 @@ def get_friends(user_id):
     for r in rows:
         is_self = r[0] == user_id
         online = (time.time() - (r[4] or 0)) < 120
-        entry = {"id": r[0], "username": r[1], "avatar_emoji": r[2], "avatar_color": r[3], "online": online}
+        entry = {"id": r[0], "username": r[1], "avatar_emoji": r[2], "avatar_color": r[3], "online": online, "avatar_url": r[6]}
         if r[5] == "pending":
             if is_self:
                 pending_outgoing.append(entry)
@@ -231,14 +256,14 @@ def get_friend_invites(user_id):
     conn = get_connection()
     c = conn.cursor()
     c.execute("""
-        SELECT fi.id, u.username, u.avatar_emoji, u.avatar_color, fi.room_code, fi.created_at
+        SELECT fi.id, u.username, u.avatar_emoji, u.avatar_color, fi.room_code, fi.created_at, u.avatar_url
         FROM friend_invites fi
         JOIN users u ON u.id = fi.inviter_id
         WHERE fi.invitee_id = ? AND fi.created_at > ?
     """, (user_id, time.time() - 3600))
     rows = c.fetchall()
     conn.close()
-    return [{"id": r[0], "from_username": r[1], "from_avatar_emoji": r[2], "from_avatar_color": r[3], "room_code": r[4]} for r in rows]
+    return [{"id": r[0], "from_username": r[1], "from_avatar_emoji": r[2], "from_avatar_color": r[3], "room_code": r[4], "from_avatar_url": r[6]} for r in rows]
 
 
 def dismiss_friend_invite(invite_id):
@@ -254,5 +279,129 @@ def update_user_discord_info(user_id, discord_id, discord_avatar, discord_userna
     c = conn.cursor()
     c.execute("UPDATE users SET discord_id = ?, discord_avatar = ?, discord_username = ? WHERE id = ?",
               (discord_id, discord_avatar, discord_username, user_id))
+    conn.commit()
+    conn.close()
+
+
+
+# ---------------------------------------------------------------------------
+# Persistent login tokens
+# ---------------------------------------------------------------------------
+
+def create_auth_token(user_id):
+    token = secrets.token_urlsafe(32)
+    now = time.time()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("INSERT INTO auth_tokens (token, user_id, created_at, last_used) VALUES (?, ?, ?, ?)",
+              (token, user_id, now, now))
+    conn.commit()
+    conn.close()
+    return token
+
+
+def get_user_by_token(token):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT u.* FROM auth_tokens t
+        JOIN users u ON u.id = t.user_id
+        WHERE t.token = ?
+    """, (token,))
+    user = c.fetchone()
+    if user:
+        c.execute("UPDATE auth_tokens SET last_used = ? WHERE token = ?", (time.time(), token))
+        conn.commit()
+    conn.close()
+    return user
+
+
+def delete_auth_token(token):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM auth_tokens WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+
+
+def delete_user_auth_tokens(user_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM auth_tokens WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Persistent games
+# ---------------------------------------------------------------------------
+
+def save_game(room_code, state_json):
+    now = time.time()
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        INSERT OR REPLACE INTO games (room_code, state, updated_at, last_activity)
+        VALUES (?, ?, ?, ?)
+    """, (room_code, state_json, now, now))
+    conn.commit()
+    conn.close()
+
+
+def load_games():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT room_code, state FROM games ORDER BY updated_at DESC")
+    rows = c.fetchall()
+    conn.close()
+    return rows
+
+
+def get_game_state(room_code):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT state FROM games WHERE room_code = ?", (room_code,))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def touch_game(room_code):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE games SET last_activity = ? WHERE room_code = ?", (time.time(), room_code))
+    conn.commit()
+    conn.close()
+
+
+def delete_game(room_code):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("DELETE FROM games WHERE room_code = ?", (room_code,))
+    conn.commit()
+    conn.close()
+
+
+def get_stale_game_codes(cutoff):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT room_code FROM games WHERE last_activity IS NULL OR last_activity < ?", (cutoff,))
+    rows = c.fetchall()
+    conn.close()
+    return [r[0] for r in rows]
+
+
+def update_user_room(user_id, room_code):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET current_room_code = ? WHERE id = ?", (room_code, user_id))
+    conn.commit()
+    conn.close()
+
+
+def clear_room_code_for_game(room_code):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET current_room_code = NULL WHERE current_room_code = ?", (room_code,))
     conn.commit()
     conn.close()
