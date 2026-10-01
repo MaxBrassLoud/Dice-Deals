@@ -94,18 +94,9 @@ def create_database():
     )
     """)
 
-    c.execute("""
-    CREATE TABLE IF NOT EXISTS guest_profiles (
-        guest_token TEXT PRIMARY KEY,
-        username TEXT,
-        avatar_emoji TEXT DEFAULT '🎲',
-        avatar_color TEXT DEFAULT '#3b82f6',
-        avatar_url TEXT,
-        is_customized INTEGER DEFAULT 0,
-        created_at REAL,
-        updated_at REAL
-    )
-    """)
+    # Gastprofile werden seit der Session-Umstellung nicht mehr gespeichert.
+    # Die Migration entfernt auch übrig gebliebene, rein temporäre Altdaten.
+    c.execute("DROP TABLE IF EXISTS guest_profiles")
 
     conn.commit()
     conn.close()
@@ -153,6 +144,27 @@ def update_user_avatar(user_id, avatar_emoji, avatar_color, avatar_url=None):
     conn.commit()
     conn.close()
     return c.rowcount > 0
+
+
+def update_user_password(user_id, password_hash):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("UPDATE users SET password = ? WHERE id = ?", (password_hash, user_id))
+    conn.commit()
+    conn.close()
+
+
+def update_user_email(user_id, email):
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        c.execute("UPDATE users SET email = ? WHERE id = ?", (email, user_id))
+        conn.commit()
+        return c.rowcount > 0
+    except sqlite3.IntegrityError:
+        return False
+    finally:
+        conn.close()
 
 
 def update_last_seen(user_id):
@@ -422,77 +434,6 @@ def clear_room_code_for_game(room_code):
     conn.close()
 
 
-# ---------------------------------------------------------------------------
-# Temporary guest profiles (play without an account)
-# ---------------------------------------------------------------------------
-
-def create_guest_profile(guest_token, username=None, avatar_emoji="🎲", avatar_color="#3b82f6", avatar_url=None):
-    now = time.time()
-    if not username:
-        username = "Spieler" + guest_token[:4].upper()
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("""
-        INSERT OR REPLACE INTO guest_profiles
-        (guest_token, username, avatar_emoji, avatar_color, avatar_url, is_customized, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-    """, (guest_token, username, avatar_emoji, avatar_color, avatar_url, now, now))
-    conn.commit()
-    conn.close()
-    return {
-        "guest_token": guest_token,
-        "username": username,
-        "avatar_emoji": avatar_emoji,
-        "avatar_color": avatar_color,
-        "avatar_url": avatar_url,
-        "is_customized": 0,
-    }
-
-
-def get_guest_profile(guest_token):
-    if not guest_token:
-        return None
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("""
-        SELECT guest_token, username, avatar_emoji, avatar_color, avatar_url, is_customized
-        FROM guest_profiles WHERE guest_token = ?
-    """, (guest_token,))
-    row = c.fetchone()
-    conn.close()
-    if not row:
-        return None
-    return {
-        "guest_token": row[0],
-        "username": row[1] or "Spieler",
-        "avatar_emoji": row[2] or "🎲",
-        "avatar_color": row[3] or "#3b82f6",
-        "avatar_url": row[4],
-        "is_customized": bool(row[5]),
-    }
-
-
-def update_guest_profile(guest_token, username, avatar_emoji, avatar_color, avatar_url=None):
-    now = time.time()
-    conn = get_connection()
-    c = conn.cursor()
-    c.execute("""
-        UPDATE guest_profiles
-        SET username = ?, avatar_emoji = ?, avatar_color = ?, avatar_url = ?,
-            is_customized = 1, updated_at = ?
-        WHERE guest_token = ?
-    """, (username, avatar_emoji, avatar_color, avatar_url, now, guest_token))
-    if c.rowcount == 0:
-        c.execute("""
-            INSERT INTO guest_profiles
-            (guest_token, username, avatar_emoji, avatar_color, avatar_url, is_customized, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-        """, (guest_token, username, avatar_emoji, avatar_color, avatar_url, now, now))
-    conn.commit()
-    conn.close()
-    return get_guest_profile(guest_token)
-
-
 def update_user_display_name(user_id, display_name):
     conn = get_connection()
     c = conn.cursor()
@@ -500,3 +441,21 @@ def update_user_display_name(user_id, display_name):
     conn.commit()
     conn.close()
     return c.rowcount > 0
+
+
+def is_display_name_available(display_name, exclude_user_id=None):
+    """Prüft Anzeigenamen gegen Login- und bereits vergebene Anzeigenamen."""
+    conn = get_connection()
+    c = conn.cursor()
+    query = """
+        SELECT id FROM users
+        WHERE (LOWER(username) = LOWER(?) OR LOWER(COALESCE(display_name, '')) = LOWER(?))
+    """
+    params = [display_name, display_name]
+    if exclude_user_id:
+        query += " AND id != ?"
+        params.append(exclude_user_id)
+    c.execute(query, params)
+    used = c.fetchone() is not None
+    conn.close()
+    return not used

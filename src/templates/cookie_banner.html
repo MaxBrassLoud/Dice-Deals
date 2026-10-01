@@ -1,0 +1,55 @@
+<style>
+    .cookie-banner {
+        position: fixed;
+        z-index: 10000;
+        right: 18px;
+        bottom: 18px;
+        width: min(430px, calc(100vw - 36px));
+        padding: 18px;
+        border: 1px solid rgba(148, 163, 184, .26);
+        border-radius: 14px;
+        background: rgba(15, 23, 42, .97);
+        box-shadow: 0 18px 48px rgba(0, 0, 0, .42);
+        color: #e2e8f0;
+        font-family: Inter, system-ui, sans-serif;
+    }
+    .cookie-banner[hidden] { display: none; }
+    .cookie-banner h2 { margin: 0 0 8px; font-size: 15px; }
+    .cookie-banner p { margin: 0; color: #cbd5e1; font-size: 13px; line-height: 1.5; }
+    .cookie-banner-actions { display: flex; justify-content: flex-end; margin-top: 14px; }
+    .cookie-banner button {
+        border: 0;
+        border-radius: 8px;
+        padding: 9px 14px;
+        background: #3b82f6;
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        font-weight: 700;
+        cursor: pointer;
+    }
+    .cookie-banner button:hover { background: #2563eb; }
+</style>
+<aside class="cookie-banner" id="cookie-banner" role="dialog" aria-labelledby="cookie-banner-title" aria-live="polite" hidden>
+    <h2 id="cookie-banner-title">🍪 Cookies für Dice Deals</h2>
+    <p>Wir verwenden nur notwendige Cookies für deine Sitzung, Sicherheit und – falls gewählt – den dauerhaften Login. Es werden keine Analyse- oder Werbe-Cookies eingesetzt.</p>
+    <div class="cookie-banner-actions"><button type="button" id="cookie-banner-accept">Verstanden</button></div>
+</aside>
+<script>
+    (() => {
+        const key = "dice-deals-cookie-notice-v1";
+        const banner = document.getElementById("cookie-banner");
+        const accept = document.getElementById("cookie-banner-accept");
+        if (!banner || !accept) return;
+        try {
+            if (localStorage.getItem(key) !== "accepted") banner.hidden = false;
+            accept.addEventListener("click", () => {
+                localStorage.setItem(key, "accepted");
+                banner.hidden = true;
+            });
+        } catch (_) {
+            banner.hidden = false;
+            accept.addEventListener("click", () => { banner.hidden = true; });
+        }
+    })();
+</script>

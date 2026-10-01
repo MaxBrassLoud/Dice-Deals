@@ -356,6 +356,23 @@
         }
         .avatar-modal h2 { font-size: 18px; font-weight: 800; margin-bottom: 6px; }
         .avatar-modal .subtitle { font-size: 13px; color: var(--text2); margin-bottom: 20px; }
+        .profile-modal {
+            max-width: 860px;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+        }
+        .profile-editor-grid {
+            display: grid;
+            grid-template-columns: minmax(260px, .9fr) minmax(300px, 1.1fr);
+            gap: 28px;
+            align-items: start;
+        }
+        .profile-editor-column { min-width: 0; }
+        .profile-editor-grid .avatar-preview { margin-top: 0; }
+        @media (max-width: 680px) {
+            .profile-modal { max-width: 420px; }
+            .profile-editor-grid { grid-template-columns: 1fr; gap: 12px; }
+        }
 
         .avatar-preview {
             width: 80px; height: 80px;
@@ -750,7 +767,7 @@
         <div class="card-label">Schnellzugriff</div>
         <div class="actions-grid">
             {% if is_guest %}
-            <a href="/login" class="action-btn">
+            <a href="/login?mode=login" class="action-btn">
                 <span class="icon">🔑</span>
                 <span>Einloggen</span>
             </a>
@@ -771,29 +788,46 @@
     <div class="footer">Dice Deals Online · Viel Spass beim Spielen!</div>
 </div>
 
-<!-- Avatar Modal -->
+<!-- Profile Modal -->
 <div class="avatar-modal-overlay" id="avatar-modal" onclick="if(event.target===this)closeAvatarModal()">
-    <div class="avatar-modal">
-        <h2 id="avatar-modal-title">Avatar anpassen</h2>
-        <div class="subtitle" id="avatar-modal-subtitle">Waehle dein Emoji und deine Farbe</div>
-        <div id="guest-username-section" style="display:none;">
-            <div class="section-label">Benutzername</div>
-            <input class="guest-username-input" id="guest-username-input" maxlength="20" placeholder="Dein Name">
-        </div>
-        <div class="avatar-preview" id="avatar-preview" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
-            {% if avatar_url %}<img src="{{ avatar_url }}" alt="Avatar">{% else %}{{ avatar_emoji }}{% endif %}
-        </div>
-        <div class="section-label">Emoji</div>
-        <div class="emoji-grid" id="emoji-grid"></div>
-        <div class="section-label">Farbe</div>
-        <div class="color-grid" id="avatar-color-grid"></div>
-        <div id="discord-avatar-wrapper">
-            <div class="section-label">Discord-Profilbild</div>
-            <div id="discord-avatar-section"></div>
+    <div class="avatar-modal profile-modal">
+        <h2 id="avatar-modal-title">Profil bearbeiten</h2>
+        <div class="subtitle" id="avatar-modal-subtitle">Passe dein Profil an</div>
+        <div class="profile-editor-grid">
+            <section class="profile-editor-column">
+                <div id="guest-username-section">
+                    <div class="section-label">Benutzername</div>
+                    <input class="guest-username-input" id="guest-username-input" maxlength="20" placeholder="Dein Name">
+                </div>
+                <div id="account-settings" style="display:none;">
+                    <div class="section-label">E-Mail-Adresse</div>
+                    <input class="guest-username-input" id="profile-email-input" type="email" placeholder="name@example.com" autocomplete="email">
+                    <div id="password-settings">
+                        <div class="section-label">Passwort ändern</div>
+                        <input class="guest-username-input" id="current-password-input" type="password" placeholder="Aktuelles Passwort" autocomplete="current-password">
+                        <input class="guest-username-input" id="new-password-input" type="password" placeholder="Neues Passwort (mind. 8 Zeichen)" autocomplete="new-password">
+                        <input class="guest-username-input" id="confirm-password-input" type="password" placeholder="Neues Passwort wiederholen" autocomplete="new-password">
+                        <button class="btn" type="button" onclick="changePassword()" style="width:100%;margin:-4px 0 16px;">Passwort ändern</button>
+                    </div>
+                </div>
+            </section>
+            <section class="profile-editor-column">
+                <div class="avatar-preview" id="avatar-preview" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
+                    {% if avatar_url %}<img src="{{ avatar_url }}" alt="Avatar">{% else %}{{ avatar_emoji }}{% endif %}
+                </div>
+                <div class="section-label">Emoji</div>
+                <div class="emoji-grid" id="emoji-grid"></div>
+                <div class="section-label">Farbe</div>
+                <div class="color-grid" id="avatar-color-grid"></div>
+                <div id="discord-avatar-wrapper">
+                    <div class="section-label">Discord-Profilbild</div>
+                    <div id="discord-avatar-section"></div>
+                </div>
+            </section>
         </div>
         <div class="modal-footer">
             <button class="btn" onclick="closeAvatarModal()">Abbrechen</button>
-            <button class="btn primary" onclick="saveAvatar()">Speichern</button>
+            <button class="btn primary" onclick="saveAvatar()">Profil speichern</button>
         </div>
     </div>
 </div>
@@ -834,8 +868,9 @@
     let selAvatarUrl = "{{ avatar_url or '' }}";
     const IS_GUEST = {{ 'true' if is_guest else 'false' }};
     let profileCustomized = {{ 'true' if profile_customized else 'false' }};
-    let guestUsername = "{{ username }}";
+    let profileUsername = "{{ username }}";
     let discordInfo = {};
+    let profileEmail = "";
 
     function avatarMarkup(u) {
         if (u && u.avatar_url) return `<img src="${u.avatar_url}" alt="">`;
@@ -850,19 +885,22 @@
         const subtitle = document.getElementById("avatar-modal-subtitle");
         const guestSection = document.getElementById("guest-username-section");
         const discordWrapper = document.getElementById("discord-avatar-wrapper");
+        const accountSettings = document.getElementById("account-settings");
         if (IS_GUEST) {
             if (title) title.textContent = "Gastprofil bearbeiten";
             if (subtitle) subtitle.textContent = "Waehle deinen Namen, Emoji und Farbe";
-            if (guestSection) guestSection.style.display = "block";
             if (discordWrapper) discordWrapper.style.display = "none";
-            const nameInput = document.getElementById("guest-username-input");
-            if (nameInput) nameInput.value = guestUsername;
+            if (accountSettings) accountSettings.style.display = "none";
         } else {
-            if (title) title.textContent = "Avatar anpassen";
-            if (subtitle) subtitle.textContent = "Waehle dein Emoji und deine Farbe";
-            if (guestSection) guestSection.style.display = "none";
+            if (title) title.textContent = "Profil bearbeiten";
+            if (subtitle) subtitle.textContent = "Name, Kontakt und Avatar anpassen";
             if (discordWrapper) discordWrapper.style.display = "block";
+            if (accountSettings) accountSettings.style.display = "block";
+            loadProfileDetails();
         }
+        if (guestSection) guestSection.style.display = "block";
+        const nameInput = document.getElementById("guest-username-input");
+        if (nameInput) nameInput.value = profileUsername;
         renderEmojiGrid();
         renderColorGrid();
         renderDiscordAvatarOption();
@@ -923,6 +961,16 @@
             renderDiscordAvatarOption();
         } catch(e) { console.error(e); }
     }
+    async function loadProfileDetails() {
+        try {
+            const res = await fetch("/api/user/profile");
+            if (!res.ok) return;
+            const data = await res.json();
+            profileEmail = data.email || "";
+            document.getElementById("profile-email-input").value = profileEmail;
+            document.getElementById("password-settings").style.display = data.has_password ? "block" : "none";
+        } catch(e) { console.error(e); }
+    }
     function updatePreview() {
         const preview = document.getElementById("avatar-preview");
         if (selAvatarUrl) {
@@ -935,18 +983,15 @@
     }
 
     async function saveAvatar() {
-        if (IS_GUEST) {
-            const nameInput = document.getElementById("guest-username-input");
-            const newName = nameInput ? nameInput.value.trim() : guestUsername;
-            if (newName.length < 3 || newName.length > 20) {
-                alert("Bitte waehle einen Benutzernamen mit 3-20 Zeichen.");
-                return;
-            }
-            guestUsername = newName;
+        const nameInput = document.getElementById("guest-username-input");
+        const newName = nameInput ? nameInput.value.trim() : profileUsername;
+        if (newName.length < 3 || newName.length > 20) {
+            alert("Bitte waehle einen Benutzernamen mit 3-20 Zeichen.");
+            return;
         }
+        profileUsername = newName;
         try {
-            const payload = { emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null };
-            if (IS_GUEST) payload.username = guestUsername;
+            const payload = { emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null, username: profileUsername };
             const res = await fetch("/api/user/avatar", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -957,11 +1002,20 @@
                 alert(data.error || "Speichern fehlgeschlagen");
                 return;
             }
-            if (IS_GUEST) {
+            if (!IS_GUEST) {
+                const email = document.getElementById("profile-email-input").value.trim();
+                if (email && email !== profileEmail) {
+                    const emailRes = await fetch("/api/user/email", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email})});
+                    const emailData = await emailRes.json().catch(() => ({}));
+                    if (!emailRes.ok) { alert(emailData.error || "E-Mail konnte nicht gespeichert werden"); return; }
+                    profileEmail = emailData.email;
+                }
+            }
+            if (data.username) {
                 profileCustomized = true;
-                if (data.username) guestUsername = data.username;
+                profileUsername = data.username;
                 const greeting = document.getElementById("greeting-name");
-                if (greeting) greeting.textContent = guestUsername;
+                if (greeting) greeting.textContent = profileUsername;
             }
             const header = document.getElementById("header-avatar");
             if (selAvatarUrl) {
@@ -973,6 +1027,21 @@
             }
             closeAvatarModal();
         } catch(e) { console.error(e); }
+    }
+
+    async function changePassword() {
+        const current = document.getElementById("current-password-input").value;
+        const next = document.getElementById("new-password-input").value;
+        const confirm = document.getElementById("confirm-password-input").value;
+        if (!current || !next) { alert("Bitte fuelle das aktuelle und das neue Passwort aus."); return; }
+        if (next !== confirm) { alert("Die neuen Passwoerter stimmen nicht ueberein."); return; }
+        try {
+            const res = await fetch("/api/user/password", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({current_password:current,new_password:next})});
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { alert(data.error || "Passwort konnte nicht aktualisiert werden"); return; }
+            ["current-password-input","new-password-input","confirm-password-input"].forEach(id => document.getElementById(id).value = "");
+            alert("Passwort aktualisiert.");
+        } catch(e) { console.error(e); alert("Passwort konnte nicht aktualisiert werden"); }
     }
 
     // Room functions
@@ -1284,14 +1353,24 @@
         });
     }
 
-    // Poll friends every 10s for online status
-    setInterval(loadFriends, 10000);
+    // Keine Hintergrundanfragen in inaktiven Tabs; sichtbare Listen reichen im 45-Sekunden-Takt.
+    let friendsRefreshTimer = null;
+    function scheduleFriendsRefresh() {
+        clearTimeout(friendsRefreshTimer);
+        friendsRefreshTimer = setTimeout(async () => {
+            if (!document.hidden) await loadFriends();
+            scheduleFriendsRefresh();
+        }, document.hidden ? 120000 : 45000);
+    }
+    document.addEventListener("visibilitychange", () => {
+        if (!document.hidden) loadFriends();
+        scheduleFriendsRefresh();
+    });
+    scheduleFriendsRefresh();
 
     // ── Discord Integration ──
     loadDiscordAvatarInfo();
-    if (IS_GUEST && !profileCustomized) {
-        setTimeout(openAvatarModal, 600);
-    }
 </script>
+{% include "cookie_banner.html" %}
 </body>
 </html>

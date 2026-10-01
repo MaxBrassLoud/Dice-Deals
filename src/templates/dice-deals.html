@@ -689,6 +689,8 @@ let IS_HOST = false;
 let selColor = "blue";
 let toastTm = null;
 let pollTm = null;
+let gameStateEtag = null;
+let stateRequestInFlight = false;
 let chatOpen = true;
 let chatUnread = 0;
 let prevChatLen = 0;
@@ -1381,10 +1383,15 @@ async function joinGame() {
 }
 
 async function fetchState(silent=false) {
+    if (stateRequestInFlight) return;
+    stateRequestInFlight = true;
     try {
-        const res = await fetch("/api/game/state");
+        const headers = gameStateEtag ? { "If-None-Match": gameStateEtag } : {};
+        const res = await fetch("/api/game/state", { headers });
+        if (res.status === 304) return;
         if (!res.ok) return;
         const ns = await res.json();
+        gameStateEtag = res.headers.get("ETag") || gameStateEtag;
         const oldSt = GS?.status;
         GS = ns;
 
@@ -1398,6 +1405,7 @@ async function fetchState(silent=false) {
             toast(icons[GS.last_event.type] || "📢", GS.status || "");
         }
     } catch(e) { console.error(e); }
+    finally { stateRequestInFlight = false; }
 }
 
 function checkPendingTax(s) {
@@ -1626,7 +1634,20 @@ function openInviteModal() {
     openOv("ov-invite");
 }
 init();
-pollTm = setInterval(() => fetchState(true), 2500);
+function scheduleStateRefresh() {
+    clearTimeout(pollTm);
+    const delay = document.hidden ? 15000 : 5000;
+    pollTm = setTimeout(async () => {
+        await fetchState(true);
+        scheduleStateRefresh();
+    }, delay);
+}
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) fetchState(true);
+    scheduleStateRefresh();
+});
+scheduleStateRefresh();
 </script>
+{% include "cookie_banner.html" %}
 </body>
 </html>

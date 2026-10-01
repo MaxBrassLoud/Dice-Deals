@@ -431,8 +431,17 @@
         <div class="logo-title">Dice Deals Online</div>
     </div>
 
+    <!-- ENTRY CHOICE -->
+    <div id="choicePanel" class="auth-card">
+        <div class="card-header"><span>🎲</span> Willkommen</div>
+        <p style="color:var(--text-secondary);line-height:1.55;margin-bottom:20px;">Möchtest du dich anmelden oder direkt als Gast spielen?</p>
+        <button type="button" id="chooseLoginBtn" class="btn">Anmelden oder Konto erstellen</button>
+        <button type="button" id="chooseGuestBtn" class="btn" style="margin-top:10px;background:transparent;border:1px solid var(--border-subtle);color:var(--text-primary);">Als Gast fortfahren</button>
+        <div id="choiceGlobalMsg" class="global-message error"></div>
+    </div>
+
     <!-- LOGIN PANEL -->
-    <div id="loginPanel" class="auth-card">
+    <div id="loginPanel" class="auth-card hidden">
         <div class="card-header">
             <span>🔐</span> Anmelden
         </div>
@@ -451,7 +460,7 @@
                 </div>
                 <div id="loginPasswordMsg" class="field-message"></div>
             </div>
-            <button type="submit" class="btn">Einloggen</button>
+            <button type="submit" id="loginSubmit" class="btn">Einloggen</button>
             <div id="loginGlobalMsg" class="global-message error"></div>
         </form>
         <div class="divider">oder</div>
@@ -498,7 +507,7 @@
                 </div>
                 <div id="regPasswordMsg" class="field-message"></div>
             </div>
-            <button type="submit" class="btn">Registrieren</button>
+            <button type="submit" id="registerSubmit" class="btn">Registrieren</button>
             <div id="registerGlobalMsg" class="global-message error"></div>
         </form>
         <div class="switch-link">
@@ -641,6 +650,10 @@
 
         const loginPanel = document.getElementById('loginPanel');
         const registerPanel = document.getElementById('registerPanel');
+        const choicePanel = document.getElementById('choicePanel');
+        const chooseLoginBtn = document.getElementById('chooseLoginBtn');
+        const chooseGuestBtn = document.getElementById('chooseGuestBtn');
+        const choiceGlobalMsg = document.getElementById('choiceGlobalMsg');
         const showRegisterLink = document.getElementById('showRegisterLink');
         const showLoginLink = document.getElementById('showLoginLink');
 
@@ -650,6 +663,7 @@
         const loginPasswordMsg = document.getElementById('loginPasswordMsg');
         const loginGlobalMsg = document.getElementById('loginGlobalMsg');
         const loginForm = document.getElementById('loginForm');
+        const loginSubmit = document.getElementById('loginSubmit');
 
         const regUsername = document.getElementById('regUsername');
         const regEmail = document.getElementById('regEmail');
@@ -659,10 +673,17 @@
         const regPasswordMsg = document.getElementById('regPasswordMsg');
         const registerGlobalMsg = document.getElementById('registerGlobalMsg');
         const registerForm = document.getElementById('registerForm');
+        const registerSubmit = document.getElementById('registerSubmit');
 
         const discordBtn = document.getElementById('discordBtn');
 
         const touched = { loginUser: false, loginPw: false, regUser: false, regEmail: false, regPw: false };
+
+        function setSubmitState(button, busy, idleLabel, busyLabel) {
+            button.disabled = busy;
+            button.textContent = busy ? busyLabel : idleLabel;
+            button.setAttribute('aria-busy', String(busy));
+        }
 
         function showLoginUserMsg() {
             if (!touched.loginUser) { loginUsernameMsg.innerHTML = ''; return; }
@@ -727,29 +748,33 @@
         regPassword.addEventListener('blur', () => { touched.regPw = true; showRegPwMsg(); });
 
         function showLogin() {
-            registerPanel.classList.add('panel-exit');
-            setTimeout(() => {
-                registerPanel.classList.add('hidden');
-                registerPanel.classList.remove('panel-exit');
-                loginPanel.classList.remove('hidden');
-                loginPanel.classList.add('panel-enter');
-                loginGlobalMsg.style.display = 'none';
-                registerGlobalMsg.style.display = 'none';
-                setTimeout(() => loginPanel.classList.remove('panel-enter'), 350);
-            }, 280);
+            choicePanel.classList.add('hidden');
+            registerPanel.classList.add('hidden');
+            loginPanel.classList.remove('hidden');
+            loginGlobalMsg.style.display = 'none';
+            registerGlobalMsg.style.display = 'none';
         }
         function showRegister() {
-            loginPanel.classList.add('panel-exit');
-            setTimeout(() => {
-                loginPanel.classList.add('hidden');
-                loginPanel.classList.remove('panel-exit');
-                registerPanel.classList.remove('hidden');
-                registerPanel.classList.add('panel-enter');
-                loginGlobalMsg.style.display = 'none';
-                registerGlobalMsg.style.display = 'none';
-                setTimeout(() => registerPanel.classList.remove('panel-enter'), 350);
-            }, 280);
+            choicePanel.classList.add('hidden');
+            loginPanel.classList.add('hidden');
+            registerPanel.classList.remove('hidden');
+            loginGlobalMsg.style.display = 'none';
+            registerGlobalMsg.style.display = 'none';
         }
+
+        chooseLoginBtn.addEventListener('click', showLogin);
+        chooseGuestBtn.addEventListener('click', async () => {
+            setSubmitState(chooseGuestBtn, true, 'Als Gast fortfahren', 'Gastmodus wird gestartet…');
+            try {
+                const res = await fetch('/api/v1/guest', { method: 'POST' });
+                if (!res.ok) throw new Error();
+                window.location.href = '/';
+            } catch {
+                choiceGlobalMsg.textContent = 'Gastmodus konnte nicht gestartet werden. Bitte erneut versuchen.';
+                choiceGlobalMsg.style.display = 'block';
+                setSubmitState(chooseGuestBtn, false, 'Als Gast fortfahren', 'Gastmodus wird gestartet…');
+            }
+        });
 
         showRegisterLink.addEventListener('click', (e) => {
             e.preventDefault();
@@ -773,6 +798,7 @@
                 loginGlobalMsg.style.display = 'block';
                 return;
             }
+            setSubmitState(loginSubmit, true, 'Einloggen', 'Wird angemeldet…');
             try {
                 const res = await fetch('/api/v1/login', {
                     method: 'POST',
@@ -791,7 +817,7 @@
                 loginGlobalMsg.textContent = 'Netzwerkfehler. Bitte spaeter versuchen.';
                 loginGlobalMsg.classList.add('error');
                 loginGlobalMsg.style.display = 'block';
-            }
+            } finally { setSubmitState(loginSubmit, false, 'Einloggen', 'Wird angemeldet…'); }
         });
 
         registerForm.addEventListener('submit', async (e) => {
@@ -813,6 +839,7 @@
                 password: regPassword.value,
                 email: regEmail.value.trim()
             };
+            setSubmitState(registerSubmit, true, 'Registrieren', 'Konto wird erstellt…');
             try {
                 const res = await fetch('/api/v1/register', {
                     method: 'POST',
@@ -821,18 +848,7 @@
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    registerGlobalMsg.classList.remove('error');
-                    registerGlobalMsg.classList.add('success');
-                    registerGlobalMsg.textContent = 'Registrierung erfolgreich! Du kannst dich jetzt anmelden.';
-                    registerGlobalMsg.style.display = 'block';
-                    loginUsername.value = payload.username;
-                    loginPassword.value = '';
-                    touched.loginUser = true; touched.loginPw = true;
-                    showLoginUserMsg(); showLoginPwMsg();
-                    setTimeout(() => {
-                        showLogin();
-                        registerGlobalMsg.style.display = 'none';
-                    }, 2000);
+                    window.location.href = '/';
                 } else {
                     registerGlobalMsg.textContent = data.error || 'Registrierung fehlgeschlagen (Benutzername evtl. vergeben).';
                     registerGlobalMsg.classList.add('error');
@@ -842,13 +858,15 @@
                 registerGlobalMsg.textContent = 'Netzwerkfehler. Bitte spaeter versuchen.';
                 registerGlobalMsg.classList.add('error');
                 registerGlobalMsg.style.display = 'block';
-            }
+            } finally { setSubmitState(registerSubmit, false, 'Registrieren', 'Konto wird erstellt…'); }
         });
 
         discordBtn.addEventListener('click', () => {
             window.location.href = '/login/discord';
         });
+        if (new URLSearchParams(window.location.search).get('mode') === 'login') showLogin();
     })();
 </script>
+{% include "cookie_banner.html" %}
 </body>
 </html>

@@ -8,7 +8,8 @@ import threading
 import time
 import requests
 from functools import wraps
-from flask import Flask, request, jsonify, render_template, redirect, session, g
+from flask import Flask, request, jsonify, render_template, redirect, session, g, make_response
+from werkzeug.security import check_password_hash, generate_password_hash
 from database import (create_database, create_user, get_user_by_username,
                       get_user_by_id, update_user_avatar, update_last_seen,
                       search_users, send_friend_request, respond_friend_request,
@@ -16,11 +17,11 @@ from database import (create_database, create_user, get_user_by_username,
                       get_friend_invites, dismiss_friend_invite,
                       update_user_discord_info,
                       create_auth_token, get_user_by_token, delete_auth_token,
+                      update_user_password, update_user_email,
                       save_game, load_games, get_game_state, touch_game,
                       delete_game, get_stale_game_codes,
                       update_user_room, clear_room_code_for_game,
-                      create_guest_profile, get_guest_profile, update_guest_profile,
-                      update_user_display_name)
+                      update_user_display_name, is_display_name_available)
 from ID_Creator import create_user_id
 from game_logic import Game, active_games
 from dotenv import load_dotenv
@@ -37,7 +38,14 @@ DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 create_database()
 
 def hash_password(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+    return generate_password_hash(pw)
+
+
+def password_matches(stored_hash: str, password: str) -> bool:
+    """Unterstützt bestehende SHA-256-Logins und migriert sie nach erfolgreichem Login."""
+    if stored_hash.startswith(("scrypt:", "pbkdf2:")):
+        return check_password_hash(stored_hash, password)
+    return secrets.compare_digest(stored_hash, hashlib.sha256(password.encode()).hexdigest())
 
 
 def login_required(f):
@@ -69,7 +77,7 @@ def get_current_game():
     if game is None:
         session.pop("room_code", None)
         uid = session.get("user_id")
-        if uid:
+        if uid and not session.get("is_guest"):
             try:
                 update_user_room(uid, None)
             except Exception:
@@ -85,6 +93,29 @@ def parse_int_field(value, default=0):
         return default
 
 
+# Teilstrings werden bewusst geprüft, damit einfache Umgehungen wie "be-leidigung"
+# oder zusammengesetzte Namen nicht durchrutschen. Die Liste kann bei Bedarf erweitert werden.
+BANNED_NAME_FRAGMENTS = {
+    "arschloch", "bastard", "fick", "fotze", "hurensohn", "hure", "idiot",
+    "kanake", "missbrauch", "nazi", "neger", "penis", "porno", "schlampe",
+    "scheisse", "scheiß", "sex", "terrorist", "vergewalt", "whore",
+}
+
+
+def validate_display_name(username, exclude_user_id=None):
+    username = (username or "").strip()
+    if not 3 <= len(username) <= 20:
+        return None, "Benutzername muss 3-20 Zeichen lang sein"
+    if not all(ch.isalnum() or ch in " _-." for ch in username):
+        return None, "Benutzername enthaelt ungueltige Zeichen"
+    normalized = "".join(ch for ch in username.casefold() if ch.isalnum())
+    if any(fragment in normalized for fragment in BANNED_NAME_FRAGMENTS):
+        return None, "Dieser Benutzername ist nicht erlaubt"
+    if not is_display_name_available(username, exclude_user_id):
+        return None, "Dieser Benutzername ist bereits vergeben"
+    return username, None
+
+
 # ---------------------------------------------------------------------------
 # Persistence helpers
 # ---------------------------------------------------------------------------
@@ -92,12 +123,14 @@ def parse_int_field(value, default=0):
 GAME_IDLE_TIMEOUT = 600  # 10 Minuten ohne Aktivität
 _last_game_cleanup = 0.0
 _cleanup_thread_started = False
+_game_revisions = {}
 
 
 def load_game_from_state(room_code, state_json):
     try:
         game = Game.from_storage_dict(json.loads(state_json))
         active_games[room_code] = game
+        _game_revisions.setdefault(room_code, 0)
         return game
     except Exception:
         app.logger.exception("Spielstand konnte nicht geladen werden: %s", room_code)
@@ -113,6 +146,12 @@ def persist_game(room_code, game):
         app.logger.exception("Spielstand konnte nicht gespeichert werden: %s", room_code)
 
 
+def bump_game_revision(room_code):
+    """Markiert einen Spielstand als geändert, damit Clients nur bei Bedarf laden."""
+    if room_code:
+        _game_revisions[room_code] = _game_revisions.get(room_code, 0) + 1
+
+
 def leave_current_room(user_id, username):
     room_code = session.get("room_code")
     if not room_code:
@@ -123,11 +162,13 @@ def leave_current_room(user_id, username):
         active_players = [p for p in game.players if not p.is_disconnected and not p.is_bankrupt]
         if not active_players:
             active_games.pop(room_code, None)
+            _game_revisions.pop(room_code, None)
             delete_game(room_code)
             clear_room_code_for_game(room_code)
         else:
             persist_game(room_code, game)
-    update_user_room(user_id, None)
+    if not session.get("is_guest"):
+        update_user_room(user_id, None)
     session.pop("room_code", None)
 
 
@@ -157,6 +198,7 @@ def cleanup_stale_games():
         cutoff = time.time() - GAME_IDLE_TIMEOUT
         for room_code in get_stale_game_codes(cutoff):
             active_games.pop(room_code, None)
+            _game_revisions.pop(room_code, None)
             delete_game(room_code)
             clear_room_code_for_game(room_code)
     except Exception:
@@ -178,6 +220,8 @@ def start_game_cleanup_thread():
 
 
 def set_session_user(user):
+    previous_guest_id = session.get("user_id") if session.get("is_guest") else None
+    previous_room = session.get("room_code") if previous_guest_id else None
     session["user_id"] = user[0]
     display_name = user[15] if len(user) > 15 and user[15] else None
     session["username"] = display_name or user[1]
@@ -185,7 +229,20 @@ def set_session_user(user):
     session["avatar_color"] = user[8] if len(user) > 8 and user[8] else "#3b82f6"
     session["avatar_url"] = user[14] if len(user) > 14 and user[14] else None
     session["is_guest"] = False
-    session.pop("profile_customized", None)
+    for key in ("profile_customized", "guest_token", "guest_id"):
+        session.pop(key, None)
+    # Beim Umwandeln eines Gastkontos bleibt ein laufendes Spiel erhalten.
+    if previous_room and previous_guest_id:
+        game = maybe_load_game(previous_room)
+        if game:
+            player = next((p for p in game.players if p.user_id == previous_guest_id), None)
+            if player:
+                player.user_id = user[0]
+                bump_game_revision(previous_room)
+                persist_game(previous_room, game)
+            session["room_code"] = previous_room
+            update_user_room(user[0], previous_room)
+            return
     saved_room = user[13] if len(user) > 13 and user[13] else None
     if saved_room:
         session["room_code"] = saved_room
@@ -206,42 +263,38 @@ def set_remember_cookie(response, token):
     return response
 
 
-def set_guest_session(profile):
-    session["user_id"] = "guest:" + profile["guest_token"]
-    session["username"] = profile.get("username") or "Spieler"
-    session["avatar_emoji"] = profile.get("avatar_emoji") or "\U0001F3B2"
-    session["avatar_color"] = profile.get("avatar_color") or "#3b82f6"
-    session["avatar_url"] = profile.get("avatar_url")
+def set_guest_session(guest_id=None, username=None, avatar_emoji="\U0001F3B2", avatar_color="#3b82f6", avatar_url=None,
+                      is_customized=False):
+    """Gastdaten leben ausschließlich in der signierten Flask-Sitzung, nie in SQLite."""
+    guest_id = guest_id or session.get("guest_id") or secrets.token_urlsafe(24)
+    session["guest_id"] = guest_id
+    session["user_id"] = "guest:" + guest_id
+    session["username"] = username or "Spieler" + guest_id[:4].upper()
+    session["avatar_emoji"] = avatar_emoji or "\U0001F3B2"
+    session["avatar_color"] = avatar_color or "#3b82f6"
+    session["avatar_url"] = avatar_url
     session["is_guest"] = True
-    session["profile_customized"] = bool(profile.get("is_customized"))
-    session["guest_token"] = profile["guest_token"]
+    session["profile_customized"] = bool(is_customized)
 
 
-def merge_guest_profile_into_user(guest_token, user_id):
-    profile = get_guest_profile(guest_token) if guest_token else None
-    if not profile or not profile.get("is_customized"):
+def merge_guest_profile_into_user(user_id):
+    if not session.get("is_guest") or not session.get("profile_customized"):
         return None
-    update_user_avatar(user_id, profile["avatar_emoji"], profile["avatar_color"], profile["avatar_url"])
-    update_user_display_name(user_id, profile["username"])
+    update_user_avatar(user_id, session.get("avatar_emoji", "🎲"), session.get("avatar_color", "#3b82f6"), session.get("avatar_url"))
+    update_user_display_name(user_id, session.get("username"))
     return get_user_by_id(user_id)
 
 
 def ensure_guest_session():
     if "user_id" in session:
         return
-    guest_token = request.cookies.get("guest_token")
-    profile = get_guest_profile(guest_token) if guest_token else None
-    if not profile:
-        guest_token = secrets.token_urlsafe(24)
-        profile = create_guest_profile(guest_token)
-        g.guest_token_to_set = guest_token
-    set_guest_session(profile)
+    set_guest_session()
 
 
 @app.before_request
 def auto_login_and_cleanup():
     path = request.path or ""
-    is_auth_path = (path.startswith("/login") or path.startswith("/api/v1/login")
+    is_auth_path = (path.startswith("/login") or path.startswith("/api/v1/login") or path == "/api/v1/guest"
                     or path.startswith("/logout") or path.startswith("/static/")
                     or path == "/favicon.ico")
 
@@ -252,7 +305,7 @@ def auto_login_and_cleanup():
             if user:
                 set_session_user(user)
 
-    if "user_id" not in session and not is_auth_path:
+    if "user_id" not in session and not is_auth_path and path != "/":
         ensure_guest_session()
 
     if time.time() - _last_game_cleanup > 60:
@@ -261,19 +314,15 @@ def auto_login_and_cleanup():
 
 @app.after_request
 def save_game_after_request(response):
-    guest_token = getattr(g, "guest_token_to_set", None)
-    if guest_token:
-        response.set_cookie(
-            "guest_token",
-            guest_token,
-            max_age=60 * 60 * 24 * 365,
-            httponly=True,
-            samesite="Lax",
-            secure=request.is_secure,
-            path="/",
-        )
+    # Alte Gast-Cookies werden entfernt; neue Gastprofile befinden sich nur in der Session.
+    if request.cookies.get("guest_token"):
+        response.delete_cookie("guest_token", path="/")
     code = session.get("room_code")
-    if code and code in active_games:
+    mutates_game = (request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                    and (request.path.startswith("/api/game/") or request.path.startswith("/api/trade/")
+                         or request.path.startswith("/api/room/")))
+    if response.status_code < 400 and code and code in active_games and mutates_game:
+        bump_game_revision(code)
         persist_game(code, active_games[code])
     return response
 
@@ -285,7 +334,10 @@ start_game_cleanup_thread()
 @app.route('/')
 @login_required
 def home():
-    update_last_seen(session["user_id"])
+    # Aktualisiert den Online-Status höchstens einmal pro Minute statt bei jedem Seitenaufruf.
+    if not session.get("is_guest") and time.time() - session.get("last_seen_at", 0) > 60:
+        update_last_seen(session["user_id"])
+        session["last_seen_at"] = time.time()
     return render_template("dashboard.html",
                            username=session["username"],
                            avatar_emoji=session.get("avatar_emoji", "🎲"),
@@ -300,6 +352,15 @@ def login_page():
     if "user_id" in session and not session.get("is_guest"):
         return redirect("/")
     return render_template("login.html")
+
+
+@app.route('/api/v1/guest', methods=['POST'])
+def continue_as_guest():
+    """Erstellt eine rein sitzungsbasierte Gastidentität erst nach ausdrücklicher Auswahl."""
+    if not session.get("is_guest"):
+        session.clear()
+    set_guest_session()
+    return jsonify({"message": "Gastmodus gestartet"}), 200
 
 
 @app.route('/logout')
@@ -332,15 +393,22 @@ def register():
     email = data.get("email", "").strip()
     if not username or not password or not email:
         return jsonify({"error": "Alle Felder sind erforderlich"}), 400
-    if len(username) < 3 or len(username) > 20:
-        return jsonify({"error": "Benutzername muss 3-20 Zeichen lang sein"}), 400
+    username, name_error = validate_display_name(username)
+    if name_error:
+        return jsonify({"error": name_error}), 400
     if len(password) < 6:
         return jsonify({"error": "Passwort muss mindestens 6 Zeichen lang sein"}), 400
     user_id = create_user_id()
     success = create_user(user_id, username, hash_password(password), email)
     if not success:
         return jsonify({"error": "Benutzername oder E-Mail bereits vergeben"}), 409
-    return jsonify({"message": "Registrierung erfolgreich"}), 201
+    # Ein neu erstelltes Konto ist sofort nutzbar; kein zweiter Login-Request nötig.
+    user = merge_guest_profile_into_user(user_id) or get_user_by_id(user_id)
+    set_session_user(user)
+    token = create_auth_token(user_id)
+    response = jsonify({"message": "Konto erstellt und angemeldet"})
+    set_remember_cookie(response, token)
+    return response, 201
 
 
 @app.route('/api/v1/login', methods=['POST'])
@@ -351,9 +419,11 @@ def login():
     if not username or not password:
         return jsonify({"error": "Benutzername und Passwort erforderlich"}), 400
     user = get_user_by_username(username)
-    if not user or user[2] != hash_password(password):
+    if not user or not password_matches(user[2], password):
         return jsonify({"error": "Ungueltige Anmeldedaten"}), 401
-    merged_user = merge_guest_profile_into_user(session.get("guest_token"), user[0])
+    if not user[2].startswith(("scrypt:", "pbkdf2:")):
+        update_user_password(user[0], hash_password(password))
+    merged_user = merge_guest_profile_into_user(user[0])
     if merged_user:
         user = merged_user
     set_session_user(user)
@@ -415,7 +485,7 @@ def discord_callback():
         user_id = user[0]
         update_user_discord_info(user_id, discord_id, discord_avatar_url, username)
     refreshed = get_user_by_id(user_id)
-    merged_user = merge_guest_profile_into_user(session.get("guest_token"), user_id)
+    merged_user = merge_guest_profile_into_user(user_id)
     if merged_user:
         refreshed = merged_user
     if refreshed:
@@ -453,7 +523,8 @@ def create_room():
     game.host_username = session["username"]
     active_games[code] = game
     session["room_code"] = code
-    update_user_room(session["user_id"], code)
+    if not session.get("is_guest"):
+        update_user_room(session["user_id"], code)
     return jsonify({"code": code, "is_host": True}), 201
 
 @app.route('/api/room/join', methods=['POST'])
@@ -469,7 +540,8 @@ def join_room():
     if session.get("room_code") != code:
         leave_current_room(session["user_id"], session["username"])
     session["room_code"] = code
-    update_user_room(session["user_id"], code)
+    if not session.get("is_guest"):
+        update_user_room(session["user_id"], code)
     return jsonify({"code": code}), 200
 
 @app.route('/api/room/leave', methods=['POST'])
@@ -493,11 +565,20 @@ def room_info():
 @app.route('/api/game/state')
 @login_required
 def game_state():
-    game, _ = get_current_game()
+    game, room_code = get_current_game()
     if not game:
         return jsonify({"error": "Kein Raum beigetreten"}), 400
-    game.check_turn_timeout()
-    return jsonify(game.to_dict())
+    if game.check_turn_timeout():
+        bump_game_revision(room_code)
+        persist_game(room_code, game)
+    revision = str(_game_revisions.get(room_code, 0))
+    if request.headers.get("If-None-Match") == f'"{revision}"':
+        response = make_response("", 304)
+    else:
+        response = make_response(jsonify(game.to_dict()))
+    response.set_etag(revision)
+    response.headers["Cache-Control"] = "private, no-cache"
+    return response
 
 def _require_my_turn(game):
     if not game.players:
@@ -815,6 +896,7 @@ def user_profile():
         "display_name": user[15] if len(user) > 15 else None,
         "discord_username": user[12] if len(user) > 12 else None,
         "discord_avatar": user[11] if len(user) > 11 else None,
+        "has_password": user[2] != "DISCORD_LOGIN",
     })
 
 
@@ -832,34 +914,67 @@ def set_avatar():
         return jsonify({"error": "Ungueltige Farbe"}), 400
     if avatar_url and not (avatar_url.startswith("https://cdn.discordapp.com/") or avatar_url.startswith("https://media.discordapp.net/")):
         return jsonify({"error": "Ungueltige Profilbild-URL"}), 400
+    username, name_error = validate_display_name(username, None if session.get("is_guest") else session["user_id"])
+    if name_error:
+        return jsonify({"error": name_error}), 400
     if session.get("is_guest"):
-        if len(username) < 3 or len(username) > 20:
-            return jsonify({"error": "Benutzername muss 3-20 Zeichen lang sein"}), 400
-        if not all(ch.isalnum() or ch in " _-." for ch in username):
-            return jsonify({"error": "Benutzername enthaelt ungueltige Zeichen"}), 400
-        profile = update_guest_profile(session.get("guest_token"), username, emoji, color, avatar_url)
-        if not profile:
-            return jsonify({"error": "Fehler beim Speichern"}), 500
-        set_guest_session(profile)
+        set_guest_session(session.get("guest_id"), username, emoji, color, avatar_url, is_customized=True)
         return jsonify({
             "message": "Gastprofil aktualisiert",
-            "username": profile["username"],
-            "avatar_emoji": profile["avatar_emoji"],
-            "avatar_color": profile["avatar_color"],
-            "avatar_url": profile["avatar_url"],
+            "username": session["username"],
+            "avatar_emoji": session["avatar_emoji"],
+            "avatar_color": session["avatar_color"],
+            "avatar_url": session["avatar_url"],
         }), 200
+    if username != session.get("username") and session.get("room_code"):
+        return jsonify({"error": "Aendere deinen Namen bitte, nachdem du den Spielraum verlassen hast"}), 409
     success = update_user_avatar(session["user_id"], emoji, color, avatar_url)
     if not success:
         return jsonify({"error": "Fehler beim Speichern"}), 500
     session["avatar_emoji"] = emoji
     session["avatar_color"] = color
     session["avatar_url"] = avatar_url
-    return jsonify({"message": "Avatar aktualisiert", "avatar_emoji": emoji, "avatar_color": color, "avatar_url": avatar_url})
+    if username != session.get("username"):
+        update_user_display_name(session["user_id"], username)
+        session["username"] = username
+    return jsonify({"message": "Profil aktualisiert", "username": session["username"], "avatar_emoji": emoji, "avatar_color": color, "avatar_url": avatar_url})
+
+
+@app.route('/api/user/email', methods=['POST'])
+@login_required
+def update_email():
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben keine E-Mail-Adresse"}), 403
+    email = (request.get_json(silent=True) or {}).get("email", "").strip().lower()
+    if not email or "@" not in email or len(email) > 254:
+        return jsonify({"error": "Bitte gib eine gueltige E-Mail-Adresse ein"}), 400
+    if not update_user_email(session["user_id"], email):
+        return jsonify({"error": "Diese E-Mail-Adresse wird bereits verwendet"}), 409
+    return jsonify({"message": "E-Mail-Adresse aktualisiert", "email": email})
+
+
+@app.route('/api/user/password', methods=['POST'])
+@login_required
+def update_password():
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben kein Passwort"}), 403
+    data = request.get_json(silent=True) or {}
+    current_password = data.get("current_password", "")
+    new_password = data.get("new_password", "")
+    if len(new_password) < 8:
+        return jsonify({"error": "Das neue Passwort muss mindestens 8 Zeichen lang sein"}), 400
+    user = get_user_by_id(session["user_id"])
+    if not user or not password_matches(user[2], current_password):
+        return jsonify({"error": "Das aktuelle Passwort ist nicht korrekt"}), 403
+    update_user_password(session["user_id"], hash_password(new_password))
+    return jsonify({"message": "Passwort aktualisiert"})
 
 
 @app.route('/api/friends/search')
 @login_required
 def friends_search():
+    if session.get("is_guest"):
+        return jsonify([])
     q = request.args.get("q", "").strip()
     if len(q) < 2:
         return jsonify([])
@@ -870,6 +985,8 @@ def friends_search():
 @app.route('/api/friends/list')
 @login_required
 def friends_list():
+    if session.get("is_guest"):
+        return jsonify({"friends": [], "pending_incoming": [], "pending_outgoing": [], "invites": []})
     update_last_seen(session["user_id"])
     data = get_friends(session["user_id"])
     invites = get_friend_invites(session["user_id"])
