@@ -1086,6 +1086,59 @@ def discord_info():
         "discord_id": user[10] if user and len(user) > 10 else None,
     })
 
+@app.route('/api/game/casino/start', methods=['POST'])
+@login_required
+def casino_start():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    data = request.get_json(silent=True) or {}
+    game_type = data.get("game_type")
+    bet = parse_int_field(data.get("bet", 0))
+    if game_type == "blackjack":
+        result = game.start_blackjack(session["username"], bet)
+    elif game_type == "roulette":
+        color = data.get("color", "")
+        result = game.play_roulette(session["username"], bet, color)
+    else:
+        return jsonify({"error": "Ungültiger Spieltyp"}), 400
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
+
+@app.route('/api/game/casino/blackjack/hit', methods=['POST'])
+@login_required
+def casino_blackjack_hit():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    result = game.blackjack_hit(session["username"])
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
+
+@app.route('/api/game/casino/blackjack/stand', methods=['POST'])
+@login_required
+def casino_blackjack_stand():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    result = game.blackjack_stand(session["username"])
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
+
+@app.route('/api/game/casino/acknowledge', methods=['POST'])
+@login_required
+def casino_acknowledge():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    result = game.acknowledge_casino(session["username"])
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
+
 
 @app.errorhandler(404)
 def not_found(error):
@@ -1093,4 +1146,4 @@ def not_found(error):
 
 
 if __name__ == '__main__':
-    app.run(debug=False, host="0.0.0.0", port=5000)
+    app.run(debug=False, host="0.0.0.0", port=5555)

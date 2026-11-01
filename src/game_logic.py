@@ -7,6 +7,7 @@ GROUP_ORDER = ["brown","lightblue","pink","orange","red","yellow","green","darkb
 TURN_TIMEOUT_SECONDS = 20
 
 CHANCE_CARDS = [
+    # ── Klassisch (10) ─────────────────────────────────────────
     {"text": "Gehe zu Los. Erhalte 200 €.", "action": "goto", "value": 0},
     {"text": "Bankfehler zu deinen Gunsten. Erhalte 200 €.", "action": "money", "value": 200},
     {"text": "Strafe erhalten. Zahle 100 €.", "action": "money", "value": -100},
@@ -17,9 +18,29 @@ CHANCE_CARDS = [
     {"text": "Kurreise. Zahle 100 €.", "action": "money", "value": -100},
     {"text": "Frei aus dem Gefängnis!", "action": "jail_card", "value": 0},
     {"text": "Rücke 3 Felder zurück.", "action": "move", "value": -3},
+
+    # ── Casino (2) ─────────────────────────────────────────────
+    {"text": "Casino! Spiele Blackjack und verdopple deinen Einsatz.", "action": "casino", "game_type": "blackjack"},
+    {"text": "Casino! Setze beim Roulette auf Rot, Schwarz oder Grün.", "action": "casino", "game_type": "roulette"},
+
+    # ── Steuer / Reparatur (3) ─────────────────────────────────
+    {"text": "Steuerprüfung! Zahle 50-75 € pro Haus und 75-100 € pro Hotel.", "action": "property_tax"},
+    {"text": "Reparatur fällig! Zahle 40 € pro Haus und 115 € pro Hotel.", "action": "repair", "house_cost": 40, "hotel_cost": 115},
+    {"text": "Dachschaden! Zahle 25 € pro Haus und 100 € pro Hotel.", "action": "repair", "house_cost": 25, "hotel_cost": 100},
+
+    # ── Grundstücks-Dividende (2) ──────────────────────────────
+    {"text": "Aktiengewinn! Erhalte 20 € für jedes Grundstück.", "action": "money_per_property", "value": 20},
+    {"text": "Mieteinnahmen! Erhalte 15 € für jedes Grundstück.", "action": "money_per_property", "value": 15},
+
+    # ── Weitere Geldkarten (3) ─────────────────────────────────
+    {"text": "Lottogewinn! Erhalte 150 €.", "action": "money", "value": 150},
+    {"text": "Erbschaft eines Onkels. Erhalte 75 €.", "action": "money", "value": 75},
+    {"text": "Verkehrsstrafe. Zahle 30 €.", "action": "money", "value": -30},
 ]
 
+
 COMMUNITY_CARDS = [
+    # ── Klassisch (8) ──────────────────────────────────────────
     {"text": "Du erbst 100 €.", "action": "money", "value": 100},
     {"text": "Arztkosten. Zahle 50 €.", "action": "money", "value": -50},
     {"text": "Steuerrückerstattung: 20 €.", "action": "money", "value": 20},
@@ -28,6 +49,26 @@ COMMUNITY_CARDS = [
     {"text": "Gewinn! Erhalte 10 €.", "action": "money", "value": 10},
     {"text": "Bankirrtum. Erhalte 200 €.", "action": "money", "value": 200},
     {"text": "Gehe ins Gefängnis.", "action": "jail", "value": 10},
+
+    # ── Casino (2) ─────────────────────────────────────────────
+    {"text": "Casino! Spiele Blackjack und verdopple deinen Einsatz.", "action": "casino", "game_type": "blackjack"},
+    {"text": "Casino! Setze beim Roulette auf Rot, Schwarz oder Grün.", "action": "casino", "game_type": "roulette"},
+
+    # ── Steuer / Reparatur (3) ─────────────────────────────────
+    {"text": "Steuerprüfung! Zahle 50-75 € pro Haus und 75-100 € pro Hotel.", "action": "property_tax"},
+    {"text": "Reparatur fällig! Zahle 50 € pro Haus und 125 € pro Hotel.", "action": "repair", "house_cost": 50, "hotel_cost": 125},
+    {"text": "Heizungsausfall! Zahle 30 € pro Haus und 90 € pro Hotel.", "action": "repair", "house_cost": 30, "hotel_cost": 90},
+
+    # ── Grundstücks-Dividende (2) ──────────────────────────────
+    {"text": "Dividende! Erhalte 30 € für jedes Grundstück.", "action": "money_per_property", "value": 30},
+    {"text": "Mieteinnahmen! Erhalte 25 € für jedes Grundstück.", "action": "money_per_property", "value": 25},
+
+    # ── Weitere Geldkarten (5) ─────────────────────────────────
+    {"text": "Geburtstagsgeschenk! Erhalte 50 €.", "action": "money", "value": 50},
+    {"text": "Krankenhausrechnung. Zahle 75 €.", "action": "money", "value": -75},
+    {"text": "Flohmarktverkauf. Erhalte 25 €.", "action": "money", "value": 25},
+    {"text": "Autoreparatur. Zahle 25 €.", "action": "money", "value": -25},
+    {"text": "Börsendividende! Erhalte 40 €.", "action": "money", "value": 40},
 ]
 
 
@@ -197,8 +238,170 @@ class Game:
 
         self.host_id: str = ""
         self.host_username: str = ""
+        self.active_casino: Optional[dict] = None
 
+    def _new_deck(self):
+        suits = ['♠', '♥', '♦', '♣']
+        ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
+        return [(rank, suit) for suit in suits for rank in ranks]
 
+    def _hand_value(self, hand):
+        value = 0
+        aces = 0
+        for rank, suit in hand:
+            if rank in ('J', 'Q', 'K'):
+                value += 10
+            elif rank == 'A':
+                aces += 1
+                value += 11
+            else:
+                value += int(rank)
+        while value > 21 and aces > 0:
+            value -= 10
+            aces -= 1
+        return value
+
+    def start_blackjack(self, username, bet):
+        player = next((p for p in self.players if p.username == username), None)
+        if not player:
+            return {"success": False, "error": "Spieler nicht gefunden."}
+        if self.active_casino:
+            return {"success": False, "error": "Es läuft bereits ein Casino-Spiel."}
+        if bet <= 0 or bet > player.money:
+            return {"success": False, "error": "Ungültiger Einsatz."}
+        player.money -= bet
+        deck = self._new_deck()
+        random.shuffle(deck)
+        player_hand = [deck.pop(), deck.pop()]
+        dealer_hand = [deck.pop(), deck.pop()]
+        self.active_casino = {
+            "game_type": "blackjack",
+            "player": username,
+            "bet": bet,
+            "deck": deck,
+            "player_hand": player_hand,
+            "dealer_hand": dealer_hand,
+            "status": "player_turn",
+            "result": None,
+            "player_value": self._hand_value(player_hand),
+            "dealer_value": self._hand_value(dealer_hand),
+            "finished": False,
+            "payout": 0
+        }
+        self.pending_card = None
+        self.status_message = f"{username} spielt Blackjack mit Einsatz {bet}€."
+        self._sys_chat(f"🎰 {username} spielt Blackjack (Einsatz: {bet}€)")
+        return {"success": True, "casino": self.active_casino}
+
+    def blackjack_hit(self, username):
+        if not self.active_casino or self.active_casino["game_type"] != "blackjack" or self.active_casino[
+            "player"] != username:
+            return {"success": False, "error": "Kein aktives Blackjack-Spiel."}
+        if self.active_casino["status"] != "player_turn":
+            return {"success": False, "error": "Nicht dein Zug."}
+        deck = self.active_casino["deck"]
+        player_hand = self.active_casino["player_hand"]
+        player_hand.append(deck.pop())
+        value = self._hand_value(player_hand)
+        self.active_casino["player_value"] = value
+        if value > 21:
+            self.active_casino["status"] = "finished"
+            self.active_casino["result"] = "lose"
+            self.active_casino["finished"] = True
+            self._resolve_blackjack()
+        return {"success": True, "casino": self.active_casino}
+
+    def blackjack_stand(self, username):
+        if not self.active_casino or self.active_casino["game_type"] != "blackjack" or self.active_casino[
+            "player"] != username:
+            return {"success": False, "error": "Kein aktives Blackjack-Spiel."}
+        if self.active_casino["status"] != "player_turn":
+            return {"success": False, "error": "Nicht dein Zug."}
+        self.active_casino["status"] = "dealer_turn"
+        dealer_hand = self.active_casino["dealer_hand"]
+        deck = self.active_casino["deck"]
+        while self._hand_value(dealer_hand) < 17:
+            dealer_hand.append(deck.pop())
+        dealer_value = self._hand_value(dealer_hand)
+        player_value = self.active_casino["player_value"]
+        self.active_casino["dealer_value"] = dealer_value
+        if dealer_value > 21:
+            result = "win"
+        elif player_value > dealer_value:
+            result = "win"
+        elif player_value < dealer_value:
+            result = "lose"
+        else:
+            result = "push"
+        self.active_casino["status"] = "finished"
+        self.active_casino["result"] = result
+        self.active_casino["finished"] = True
+        self._resolve_blackjack()
+        return {"success": True, "casino": self.active_casino}
+
+    def _resolve_blackjack(self):
+        casino = self.active_casino
+        player = next((p for p in self.players if p.username == casino["player"]), None)
+        bet = casino["bet"]
+        result = casino["result"]
+        if result == "win":
+            player.money += bet * 2
+            casino["payout"] = bet * 2
+        elif result == "push":
+            player.money += bet
+            casino["payout"] = bet
+        else:
+            casino["payout"] = 0
+        self.status_message = f"Blackjack: {casino['result']}. Auszahlung: {casino.get('payout', 0)}€."
+        self._sys_chat(f"🎰 Blackjack: {casino['player']} {casino['result']} (Auszahlung: {casino.get('payout', 0)}€)")
+
+    def play_roulette(self, username, bet, color):
+        player = next((p for p in self.players if p.username == username), None)
+        if not player:
+            return {"success": False, "error": "Spieler nicht gefunden."}
+        if self.active_casino:
+            return {"success": False, "error": "Es läuft bereits ein Casino-Spiel."}
+        if bet <= 0 or bet > player.money:
+            return {"success": False, "error": "Ungültiger Einsatz."}
+        if color not in ("red", "black", "green"):
+            return {"success": False, "error": "Ungültige Farbe."}
+        player.money -= bet
+        number = random.randint(0, 36)
+        if number == 0:
+            spin_color = "green"
+        elif number in (1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36):
+            spin_color = "red"
+        else:
+            spin_color = "black"
+        win = (spin_color == color)
+        if win:
+            payout = bet * 3 if color == "green" else bet * 2
+            player.money += payout
+        else:
+            payout = 0
+        self.pending_card = None
+        self.active_casino = {
+            "game_type": "roulette",
+            "player": username,
+            "bet": bet,
+            "color": color,
+            "number": number,
+            "spin_color": spin_color,
+            "win": win,
+            "payout": payout,
+            "finished": True
+        }
+        self.status_message = f"Roulette: {number} {spin_color}. {'Gewonnen' if win else 'Verloren'}! Auszahlung: {payout}€."
+        self._sys_chat(f"🎰 Roulette: {number} {spin_color} – {username} {'gewinnt' if win else 'verliert'} {payout}€")
+        return {"success": True, "casino": self.active_casino}
+
+    def acknowledge_casino(self, username):
+        if not self.active_casino or self.active_casino["player"] != username:
+            return {"success": False, "error": "Kein aktives Casino-Spiel."}
+        if not self.active_casino.get("finished"):
+            return {"success": False, "error": "Spiel noch nicht beendet."}
+        self.active_casino = None
+        return {"success": True}
 
     def add_player(self, user_id, username, color, avatar_emoji="🎲", avatar_color="#3b82f6", avatar_url="") -> bool:
         existing = next((p for p in self.players if p.user_id == user_id), None)
@@ -377,9 +580,7 @@ class Game:
         self.pending_card = {
             "player": player.username,
             "card_type": card_type,
-            "text": card["text"],
-            "action": card["action"],
-            "value": card["value"],
+            **card
         }
 
     def confirm_card(self, username: str) -> dict:
@@ -428,6 +629,64 @@ class Game:
                 player.money += 200
             player.position = nxt
             self._handle_field(player)
+        elif action == "property_tax":
+            breakdown = []
+            total = 0
+            for prop in player.properties:
+                if prop.houses == 5:
+                    cost = random.randint(75, 100)
+                    breakdown.append({"name": prop.name, "houses": 0, "hotels": 1, "cost": cost})
+                    total += cost
+                elif prop.houses > 0:
+                    cost_per_house = random.randint(50, 75)
+                    cost = prop.houses * cost_per_house
+                    breakdown.append({"name": prop.name, "houses": prop.houses, "hotels": 0, "cost": cost})
+                    total += cost
+            if total == 0:
+                self.status_message = f"{player.username} hat keine Gebäude. Keine Steuer fällig."
+                return
+            self.pending_tax = {
+                "payer": player.username,
+                "amount": total,
+                "field_name": "Steuerprüfung",
+                "tax_type": "property_tax",
+                "breakdown": breakdown
+            }
+            self.status_message = f"{player.username} muss {total}€ Steuer für Gebäude zahlen."
+            self._sys_chat(f"🏛️ Steuerprüfung: {player.username} zahlt {total}€ für Gebäude.")
+        elif action == "repair":
+            house_cost = card.get("house_cost", 40)
+            hotel_cost = card.get("hotel_cost", 115)
+            breakdown = []
+            total = 0
+            for prop in player.properties:
+                if prop.houses == 5:
+                    cost = hotel_cost
+                    breakdown.append({"name": prop.name, "houses": 0, "hotels": 1, "cost": cost})
+                    total += cost
+                elif prop.houses > 0:
+                    cost = prop.houses * house_cost
+                    breakdown.append({"name": prop.name, "houses": prop.houses, "hotels": 0, "cost": cost})
+                    total += cost
+            if total == 0:
+                self.status_message = f"{player.username} hat keine Gebäude. Keine Reparatur fällig."
+                return
+            self.pending_tax = {
+                "payer": player.username,
+                "amount": total,
+                "field_name": "Reparatur",
+                "tax_type": "repair",
+                "breakdown": breakdown
+            }
+            self.status_message = f"{player.username} muss {total}€ für Reparaturen zahlen."
+            self._sys_chat(f"🔧 Reparatur: {player.username} zahlt {total}€.")
+        elif action == "money_per_property":
+            value = card.get("value", 20)
+            num_props = len(player.properties)
+            amount = value * num_props
+            player.money += amount
+            self.status_message = f"{player.username} erhält {amount}€ Dividende für {num_props} Grundstücke."
+            self._sys_chat(f"💰 Dividende: {player.username} erhält {amount}€.")
 
     def _send_to_jail(self, player):
         player.position = 10
@@ -1057,6 +1316,7 @@ class Game:
             "host_username": self.host_username,
             "turn_started_at": self.turn_started_at,
             "movement_this_turn": self.movement_this_turn,
+            "active_casino": self.active_casino,
             "players": [{
                 "user_id": p.user_id,
                 "username": p.username,
@@ -1087,7 +1347,7 @@ class Game:
 
         dice = data.get("dice_result")
         game.dice_result = tuple(dice) if dice else None
-
+        game.active_casino = data.get("active_casino")
         players = []
         for pd in data.get("players", []):
             p = Player(
@@ -1176,6 +1436,7 @@ class Game:
             "winner": self.last_event.get("player") if self.last_event and self.last_event.get("type") == "winner" else None,
             "free_parking_pot": self.free_parking_pot,
             "chat_messages": self.chat_messages[-80:],
+            "active_casino": self.active_casino,
         }
 
 
