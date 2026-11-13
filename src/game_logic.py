@@ -38,7 +38,6 @@ CHANCE_CARDS = [
     {"text": "Verkehrsstrafe. Zahle 30 €.", "action": "money", "value": -30},
 ]
 
-
 COMMUNITY_CARDS = [
     # ── Klassisch (8) ──────────────────────────────────────────
     {"text": "Du erbst 100 €.", "action": "money", "value": 100},
@@ -239,6 +238,7 @@ class Game:
         self.host_id: str = ""
         self.host_username: str = ""
         self.active_casino: Optional[dict] = None
+        self.pending_casino: Optional[dict] = None
 
     def _new_deck(self):
         suits = ['♠', '♥', '♦', '♣']
@@ -269,6 +269,7 @@ class Game:
             return {"success": False, "error": "Es läuft bereits ein Casino-Spiel."}
         if bet <= 0 or bet > player.money:
             return {"success": False, "error": "Ungültiger Einsatz."}
+        self.pending_casino = None     # ← NEU
         player.money -= bet
         deck = self._new_deck()
         random.shuffle(deck)
@@ -365,6 +366,7 @@ class Game:
             return {"success": False, "error": "Ungültiger Einsatz."}
         if color not in ("red", "black", "green"):
             return {"success": False, "error": "Ungültige Farbe."}
+        self.pending_casino = None     # ← NEU
         player.money -= bet
         number = random.randint(0, 36)
         if number == 0:
@@ -393,6 +395,75 @@ class Game:
         }
         self.status_message = f"Roulette: {number} {spin_color}. {'Gewonnen' if win else 'Verloren'}! Auszahlung: {payout}€."
         self._sys_chat(f"🎰 Roulette: {number} {spin_color} – {username} {'gewinnt' if win else 'verliert'} {payout}€")
+        return {"success": True, "casino": self.active_casino}
+
+    # ── Double or Nothing ─────────────────────────────────────────────
+    def start_double_or_nothing(self, username, bet):
+        player = next((p for p in self.players if p.username == username), None)
+        if not player:
+            return {"success": False, "error": "Spieler nicht gefunden."}
+        if self.active_casino:
+            return {"success": False, "error": "Es läuft bereits ein Casino-Spiel."}
+        if bet <= 0 or bet > player.money:
+            return {"success": False, "error": "Ungültiger Einsatz."}
+        player.money -= bet
+        self.active_casino = {
+            "game_type": "double_or_nothing",
+            "player": username,
+            "bet": bet,
+            "current_value": bet,
+            "rounds": 0,
+            "status": "active",
+            "finished": False,
+            "history": [],
+            "last_result": None,
+            "payout": 0,
+        }
+        self.pending_card = None
+        self.status_message = f"{username} spielt Double or Nothing mit Einsatz {bet}€."
+        self._sys_chat(f"🎰 {username} spielt Double or Nothing (Einsatz: {bet}€)")
+        return {"success": True, "casino": self.active_casino}
+
+    def double_or_nothing_continue(self, username):
+        casino = self.active_casino
+        if not casino or casino["game_type"] != "double_or_nothing" or casino["player"] != username:
+            return {"success": False, "error": "Kein aktives Double-or-Nothing-Spiel."}
+        if casino["finished"]:
+            return {"success": False, "error": "Spiel bereits beendet."}
+        win = random.random() < 0.5
+        casino["rounds"] += 1
+        if win:
+            casino["current_value"] *= 2
+            casino["last_result"] = "win"
+            casino["history"].append({"round": casino["rounds"], "result": "win", "value": casino["current_value"]})
+            self._sys_chat(f"🎰 Double or Nothing: {username} verdoppelt auf {casino['current_value']}€ (Runde {casino['rounds']})")
+        else:
+            casino["current_value"] = 0
+            casino["last_result"] = "lose"
+            casino["history"].append({"round": casino["rounds"], "result": "lose", "value": 0})
+            casino["finished"] = True
+            casino["status"] = "finished"
+            casino["payout"] = 0
+            self.status_message = f"Double or Nothing: {username} verliert alles nach {casino['rounds']} Runden."
+            self._sys_chat(f"💀 Double or Nothing: {username} verliert alles!")
+        return {"success": True, "casino": self.active_casino}
+
+    def double_or_nothing_cashout(self, username):
+        casino = self.active_casino
+        if not casino or casino["game_type"] != "double_or_nothing" or casino["player"] != username:
+            return {"success": False, "error": "Kein aktives Double-or-Nothing-Spiel."}
+        if casino["finished"]:
+            return {"success": False, "error": "Spiel bereits beendet."}
+        player = next((p for p in self.players if p.username == username), None)
+        payout = casino["current_value"]
+        player.money += payout
+        casino["finished"] = True
+        casino["status"] = "finished"
+        casino["payout"] = payout
+        casino["last_result"] = "cashout"
+        casino["history"].append({"round": casino["rounds"] + 1, "result": "cashout", "value": payout})
+        self.status_message = f"Double or Nothing: {username} steigt aus mit {payout}€."
+        self._sys_chat(f"💰 Double or Nothing: {username} casht {payout}€ aus!")
         return {"success": True, "casino": self.active_casino}
 
     def acknowledge_casino(self, username):
@@ -598,7 +669,7 @@ class Game:
 
     def _execute_card(self, player: "Player", card: dict):
         action = card["action"]
-        value  = card["value"]
+        value = card.get("value", 0)  # FIX: Casino-Karten haben kein "value"
         if action in ("goto", "jail", "move", "next_station"):
             self.movement_this_turn = True
         self.status_message = f"Karte: {card['text']}"
@@ -687,6 +758,15 @@ class Game:
             player.money += amount
             self.status_message = f"{player.username} erhält {amount}€ Dividende für {num_props} Grundstücke."
             self._sys_chat(f"💰 Dividende: {player.username} erhält {amount}€.")
+        elif action == "casino":
+            # ── NEU: Casino-Karte bestätigt, Spieler betritt das Casino ──
+            # pending_casino blockiert den Turn-Timer, bis der Spieler
+            # über /api/game/casino/start einen Einsatz gewählt hat.
+            self.pending_casino = {
+                "player": player.username,
+                "game_type": card.get("game_type", "blackjack"),
+            }
+            self.status_message = f"{player.username} betritt das Casino ({card.get('game_type', '?')})."
 
     def _send_to_jail(self, player):
         player.position = 10
@@ -1202,13 +1282,15 @@ class Game:
             return None
         if self.movement_this_turn:
             return None
-        if self.pending_rent or self.pending_tax or self.pending_card or self.active_trade:
+        if (self.pending_rent or self.pending_tax or self.pending_card
+                or self.active_trade or self.active_casino or self.pending_casino):
             return None
         if self.last_event and self.last_event.get("type") in ("winner", "draw"):
             return None
         return self.turn_started_at + TURN_TIMEOUT_SECONDS
 
     def end_turn(self):
+        self.pending_casino = None    # ← NEU: Spieler hat Casino übersprungen
         self.dice_result = None
         self.can_buy = False
         self.turn_phase = "roll"
@@ -1406,6 +1488,8 @@ class Game:
         game.host_id = data.get("host_id", "")
         game.host_username = data.get("host_username", "")
         game.movement_this_turn = bool(data.get("movement_this_turn", False))
+        game.active_casino = data.get("active_casino")
+        game.pending_casino = data.get("pending_casino")   # ← NEU
         if game.movement_this_turn:
             game.turn_started_at = float(data.get("turn_started_at") or time.time())
         else:
@@ -1437,6 +1521,7 @@ class Game:
             "free_parking_pot": self.free_parking_pot,
             "chat_messages": self.chat_messages[-80:],
             "active_casino": self.active_casino,
+            "pending_casino": self.pending_casino,   # ← NEU
         }
 
 

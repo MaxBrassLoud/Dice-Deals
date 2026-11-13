@@ -1100,6 +1100,8 @@ def casino_start():
     elif game_type == "roulette":
         color = data.get("color", "")
         result = game.play_roulette(session["username"], bet, color)
+    elif game_type == "double_or_nothing":
+        result = game.start_double_or_nothing(session["username"], bet)
     else:
         return jsonify({"error": "Ungültiger Spieltyp"}), 400
     if not result.get("success"):
@@ -1135,6 +1137,28 @@ def casino_acknowledge():
     if not game:
         return jsonify({"error": "Kein Raum"}), 400
     result = game.acknowledge_casino(session["username"])
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
+
+@app.route('/api/game/casino/double_or_nothing/continue', methods=['POST'])
+@login_required
+def casino_double_continue():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    result = game.double_or_nothing_continue(session["username"])
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
+
+@app.route('/api/game/casino/double_or_nothing/cashout', methods=['POST'])
+@login_required
+def casino_double_cashout():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    result = game.double_or_nothing_cashout(session["username"])
     if not result.get("success"):
         return jsonify({"error": result.get("error", "Fehler")}), 400
     return jsonify(game.to_dict())
