@@ -338,7 +338,7 @@
             grid.appendChild(slot);
 
             // Empty slots
-            for (let i = 0; i < 5; i++) {
+            for (let i = 0; i < 9; i++) {
                 const empty = document.createElement('div');
                 empty.className = 'player-slot empty';
                 empty.innerHTML = `
@@ -406,7 +406,7 @@
             });
 
             // Empty slots
-            const emptyCount = Math.max(0, 6 - state.players.length);
+            const emptyCount = Math.max(0, 10 - state.players.length);
             for (let i = 0; i < emptyCount; i++) {
                 const empty = document.createElement('div');
                 empty.className = 'player-slot empty';
@@ -421,7 +421,7 @@
                 waitingText.textContent = `${state.players.length} Spieler bereit!`;
             } else {
                 startBtn.disabled = true;
-                waitingText.textContent = `Warte auf Spieler... (${state.players.length}/6)`;
+                waitingText.textContent = `Warte auf Spieler... (${state.players.length}/10)`;
             }
         }
 

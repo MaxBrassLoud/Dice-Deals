@@ -7,7 +7,6 @@ GROUP_ORDER = ["brown","lightblue","pink","orange","red","yellow","green","darkb
 TURN_TIMEOUT_SECONDS = 20
 
 CHANCE_CARDS = [
-    # ── Klassisch (10) ─────────────────────────────────────────
     {"text": "Gehe zu Los. Erhalte 200 €.", "action": "goto", "value": 0},
     {"text": "Bankfehler zu deinen Gunsten. Erhalte 200 €.", "action": "money", "value": 200},
     {"text": "Strafe erhalten. Zahle 100 €.", "action": "money", "value": -100},
@@ -39,7 +38,6 @@ CHANCE_CARDS = [
 ]
 
 COMMUNITY_CARDS = [
-    # ── Klassisch (8) ──────────────────────────────────────────
     {"text": "Du erbst 100 €.", "action": "money", "value": 100},
     {"text": "Arztkosten. Zahle 50 €.", "action": "money", "value": -50},
     {"text": "Steuerrückerstattung: 20 €.", "action": "money", "value": 20},
@@ -172,7 +170,7 @@ def _create_board() -> List[Field]:
         Field("Handelsallee", "property", 180, [14,70,200,550,750,950], "orange", 90, hp["orange"]),
         Field("Gemeinschaft", "community"),
         Field("Industrieplatz", "property", 180, [14,70,200,550,750,950], "orange", 90, hp["orange"]),
-        Field("Skyline Avenue", "property", 200, [16,80,220,600,800,1000], "orange", 100, hp["orange"]),
+        Field("Skyline TV Avenue", "property", 200, [16,80,220,600,800,1000], "orange", 100, hp["orange"]),
         Field("Frei Parken", "special"),
         Field("Rubinweg", "property", 220, [18,90,250,700,875,1050], "red", 110, hp["red"]),
         Field("Chance", "chance"),
@@ -486,9 +484,12 @@ class Game:
             self.status_message = f"{username} ist zurückgekehrt!"
             self._sys_chat(f"{username} ist dem Spiel wieder beigetreten! 🎉")
             return True
-        if len(self.players) >= 6:
-            return False
         if any(p.user_id == user_id for p in self.players):
+            return False
+
+        # ── Nur AKTIVE Spieler zählen ──
+        active_count = sum(1 for p in self.players if not p.is_disconnected and not p.is_bankrupt)
+        if active_count >= 10:
             return False
 
         self.players.append(Player(user_id, username, color, avatar_emoji, avatar_color, avatar_url))

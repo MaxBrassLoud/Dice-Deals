@@ -620,3 +620,8 @@ body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); 
 .don-history-row.win    span:nth-child(2) { color: var(--accent2); font-weight: 700; }
 .don-history-row.lose   span:nth-child(2) { color: var(--danger);  font-weight: 700; }
 .don-history-row.cashout span:nth-child(2) { color: var(--warning); font-weight: 700; }
+
+/* Mehr Platz für bis zu 10 Spieler-Token pro Feld */
+.tokens-row { max-width: 100%; gap: 1px; }
+.token { width: clamp(6px, 1.1cqi, 14px); height: clamp(6px, 1.1cqi, 14px); }
+.field.my-position::after { font-size: clamp(4px, .55cqi, 7px); }

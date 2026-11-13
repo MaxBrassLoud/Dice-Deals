@@ -655,7 +655,7 @@ def join_game():
     avatar_url = session.get("avatar_url")
     success = game.add_player(session["user_id"], session["username"], color, avatar_emoji, avatar_color, avatar_url)
     if not success:
-        return jsonify({"error": "Beitreten fehlgeschlagen (max. 6 Spieler oder bereits drin)."}), 400
+        return jsonify({"error": "Beitreten fehlgeschlagen (max. 10 Spieler oder bereits drin)."}), 400
     return jsonify(game.to_dict())
 
 
@@ -1163,6 +1163,54 @@ def casino_double_cashout():
         return jsonify({"error": result.get("error", "Fehler")}), 400
     return jsonify(game.to_dict())
 
+@app.route('/api/debug/limit')
+@login_required
+def debug_limit():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+
+    import inspect, sys, os, game_logic
+    active = sum(1 for p in game.players if not p.is_disconnected and not p.is_bankrupt)
+
+    try:
+        method = game.add_player
+        loaded_from = method.__code__.co_filename          # ← echte Datei der Methode
+        method_line = method.__code__.co_firstlineno       # ← ab welcher Zeile
+        src = inspect.getsource(method)
+        limit_lines = [l.strip() for l in src.split("\n")
+                       if ">=" in l or "len(self.players) >" in l or "active_count >" in l]
+    except Exception as e:
+        loaded_from = f"Fehler: {e}"
+        method_line = None
+        limit_lines = []
+
+    # Datei-Info: gibt es die Datei, wann wurde sie geändert, was steht drin?
+    file_info = {}
+    try:
+        real_path = os.path.abspath(game_logic.__file__)
+        file_info["path"] = real_path
+        file_info["exists"] = os.path.exists(real_path)
+        file_info["mtime"] = os.path.getmtime(real_path) if os.path.exists(real_path) else None
+        with open(real_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        file_info["contains_>= 10"] = ">= 10" in content
+        file_info["contains_>= 6"] = ">= 6" in content
+        file_info["contains_active_count"] = "active_count" in content
+    except Exception as e:
+        file_info["error"] = str(e)
+
+    return jsonify({
+        "server_pid": os.getpid(),
+        "python_version": sys.version,
+        "game_logic_module_file": getattr(game_logic, "__file__", "?"),
+        "loaded_from_co_filename": loaded_from,
+        "method_starts_at_line": method_line,
+        "limit_lines_in_loaded_method": limit_lines,
+        "file_on_disk": file_info,
+        "active_players": active,
+        "total_players": len(game.players),
+    })
 
 @app.errorhandler(404)
 def not_found(error):
@@ -1170,4 +1218,4 @@ def not_found(error):
 
 
 if __name__ == '__main__':
-    app.run(debug=False, host="0.0.0.0", port=5555)
+    app.run(debug=True, host="0.0.0.0", port=5555)
