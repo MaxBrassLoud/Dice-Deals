@@ -1,0 +1,30 @@
+/* ── Player Cards ──────────────────────────────────────── */
+.player-card { display:flex; align-items:center; gap:8px; padding:9px 10px; border-radius:var(--r); border:1px solid var(--border); border-left:4px solid var(--pc, var(--border)); margin-bottom:7px; background:var(--bg3); transition:border-color .2s, background .3s, opacity .5s, box-shadow .3s; }
+.player-card:last-child { margin-bottom:0; }
+.player-card.active { border-color:var(--pc, var(--warning)); background:var(--pc-soft, rgba(227,179,65,.07)); animation:activePulse 1.6s ease-in-out infinite; }
+@keyframes activePulse {
+  0%,100% { box-shadow:0 0 0 1px var(--pc, var(--warning)), 0 0 10px var(--pc, rgba(227,179,65,.3)); }
+  50%     { box-shadow:0 0 0 2px var(--pc, var(--warning)), 0 0 22px var(--pc, rgba(227,179,65,.55)); }
+}
+.player-card.bankrupt { opacity:.35; }
+.player-avatar { width:32px; height:32px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:15px; flex-shrink:0; color:white; overflow:hidden; }
+.player-name { font-size:12px; font-weight:600; }
+.player-money { font-size:11px; color:var(--accent2); font-weight:600; }
+.player-props { font-size:10px; color:var(--text2); }
+.turn-badge { margin-left:auto; font-size:9px; font-weight:700; color:var(--pc, var(--warning)); border:1px solid var(--pc, var(--warning)); border-radius:4px; padding:2px 5px; white-space:nowrap; }
+
+/* ── Field Current-Turn (Sidebar-Farbe) ────────────────── */
+.field.current-turn { border-color:var(--pc, var(--warning)); box-shadow:0 0 0 2px var(--pc, rgba(227,179,65,.45)); z-index:2; }
+.field.owned.current-turn { border-color:var(--pc, var(--warning)); box-shadow:0 0 0 2px var(--pc, rgba(227,179,65,.55)), inset 0 0 0 2px var(--owner-color); }
+
+/* ── Card Flashes (vorhanden, bleiben in CSS) ─────────── */
+@keyframes cardFlashGreen { 0%,100%{background:var(--bg3)} 30%{background:rgba(63,185,80,.18)} }
+@keyframes cardFlashRed   { 0%,100%{background:var(--bg3)} 30%{background:rgba(248,81,73,.18)} }
+@keyframes cardShake      { 0%,100%{transform:none} 20%{transform:translateX(-4px)} 40%{transform:translateX(4px)} 60%{transform:translateX(-3px)} 80%{transform:translateX(3px)} }
+.player-card.flash-green { animation:cardFlashGreen .6s ease; }
+.player-card.flash-red   { animation:cardFlashRed   .6s ease; }
+.player-card.flash-shake { animation:cardShake .4s ease; }
+
+/* ── Bankrupt effect ────────────────────────────────────── */
+@keyframes bankruptFade { 0%{opacity:1;filter:none} 100%{opacity:.35;filter:grayscale(1)} }
+.player-card.going-bankrupt { animation:bankruptFade .8s ease forwards; }

@@ -6,6 +6,7 @@
     <title>Dice Deals</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='dice-deals.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='players.css') }}">
 </head>
 <body>
 
@@ -231,6 +232,16 @@
         username: {{ session['username'] | tojson }}
     };
 </script>
+<script src="{{ url_for('static', filename='dice-deals-state.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-overlays.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-board.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-players.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-properties.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-payments.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-trade.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-casino.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-chat.js') }}"></script>
+<script src="{{ url_for('static', filename='dice-deals-cards.js') }}"></script>
 <script src="{{ url_for('static', filename='dice-deals.js') }}"></script>
 {% include "cookie_banner.html" %}
 </body>
