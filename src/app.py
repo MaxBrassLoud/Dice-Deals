@@ -588,6 +588,20 @@ def _require_my_turn(game):
         return jsonify({"error": "Du bist nicht dran"}), 403
     return None
 
+@app.route('/api/game/start', methods=['POST'])
+@login_required
+def start_game():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    if game.host_id != session["user_id"]:
+        return jsonify({"error": "Nur der Host kann das Spiel starten."}), 403
+    ok, msg = game.start_game()
+    if not ok:
+        return jsonify({"error": msg}), 400
+    return jsonify(game.to_dict())
+
+
 @app.route('/api/game/roll', methods=['POST'])
 @login_required
 def roll_dice():
@@ -597,6 +611,8 @@ def roll_dice():
     err = _require_my_turn(game)
     if err:
         return err
+    if not game.started:
+        return jsonify({"error": "Das Spiel hat noch nicht gestartet."}), 400
     if game.pending_rent:
         return jsonify({"error": "Du musst zuerst die Miete bezahlen."}), 400
     if game.pending_tax:
@@ -828,7 +844,9 @@ def trade_send():
     my_money = parse_int_field(data.get("my_money", 0))
     their_props = data.get("their_props", [])
     their_money = parse_int_field(data.get("their_money", 0))
-    result = game.send_trade(session["username"], to, my_props, my_money, their_props, their_money)
+    my_jail_cards = parse_int_field(data.get("my_jail_cards", 0))
+    their_jail_cards = parse_int_field(data.get("their_jail_cards", 0))
+    result = game.send_trade(session["username"], to, my_props, my_money, their_props, their_money, my_jail_cards, their_jail_cards)
     if not result.get("success"):
         return jsonify({"error": result.get("error", "Fehler")}), 400
     return jsonify(game.to_dict())
@@ -844,18 +862,36 @@ def trade_respond():
     action = data.get("action", "")
     if action not in ("accept", "reject", "counter"):
         return jsonify({"error": "Ungueltige Aktion"}), 400
+    trade_id = data.get("trade_id", "")
     counter = None
     if action == "counter":
         counter = {
             "my_props": data.get("my_props", []),
             "my_money": parse_int_field(data.get("my_money", 0)),
             "their_props": data.get("their_props", []),
-            "their_money": parse_int_field(data.get("their_money", 0))
+            "their_money": parse_int_field(data.get("their_money", 0)),
+            "my_jail_cards": parse_int_field(data.get("my_jail_cards", 0)),
+            "their_jail_cards": parse_int_field(data.get("their_jail_cards", 0)),
         }
-    result = game.respond_trade(session["username"], action, counter)
+    result = game.respond_trade(session["username"], trade_id, action, counter)
     if not result.get("success"):
         return jsonify({"error": result.get("error", "Fehler")}), 400
     return jsonify(game.to_dict())
+
+
+@app.route('/api/trade/cancel', methods=['POST'])
+@login_required
+def trade_cancel():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    data = request.get_json(silent=True) or {}
+    trade_id = data.get("trade_id", "")
+    result = game.cancel_trade(session["username"], trade_id)
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
+
 
 @app.route('/api/game/chat', methods=['POST'])
 @login_required

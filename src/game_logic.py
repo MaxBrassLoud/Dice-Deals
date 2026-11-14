@@ -212,6 +212,7 @@ class Game:
         self.last_move: Optional[dict] = None
         self.turn_started_at = time.time()
         self.movement_this_turn = False
+        self.started = False
 
 
         self.pending_rent: Optional[dict] = None
@@ -221,7 +222,7 @@ class Game:
         self.pending_tax: Optional[dict] = None
 
 
-        self.active_trade: Optional[dict] = None
+        self.trades: List[dict] = []
 
 
         self.free_parking_pot: int = 0
@@ -506,7 +507,23 @@ class Game:
 
 
 
+    def start_game(self):
+        """Startet das Spiel (nur Host, mind. 2 aktive Spieler). Vorher: keine Züge."""
+        if self.started:
+            return False, "Das Spiel laueft bereits."
+        active = sum(1 for p in self.players if not p.is_disconnected and not p.is_bankrupt)
+        if active < 2:
+            return False, "Es brauchen mindestens 2 Spieler."
+        self.started = True
+        self._reset_turn_timer()
+        self.status_message = "Das Spiel hat begonnen! Viel Glueck."
+        self._sys_chat("Das Spiel hat begonnen! 🎲")
+        return True, "Das Spiel hat begonnen!"
+
     def roll_dice(self):
+        if not self.started:
+            self.status_message = "Das Spiel hat noch nicht gestartet."
+            return
         if self.turn_phase != "roll":
             return
         d1, d2 = random.randint(1, 6), random.randint(1, 6)
@@ -846,6 +863,9 @@ class Game:
         field = next((f for f in self.board if f.name == property_name), None)
         if not field or field not in player.properties:
             return {"success": False, "error": "Diese Straße gehört dir nicht."}
+        locked_props, _ = self._trade_locks()
+        if field.name in locked_props:
+            return {"success": False, "error": f"'{field.name}' ist in einem laufenden Handel gebunden."}
         if field.field_type != "property":
             return {"success": False, "error": "Nur Straßen können bebaut werden."}
         group = [f for f in self.board if f.color_group == field.color_group and f.field_type == "property"]
@@ -885,6 +905,9 @@ class Game:
         field = next((f for f in self.board if f.name == property_name), None)
         if not field or field not in player.properties:
             return {"success": False, "error": "Dieses Grundstück gehört dir nicht."}
+        locked_props, _ = self._trade_locks()
+        if field.name in locked_props:
+            return {"success": False, "error": f"'{field.name}' ist in einem laufenden Handel gebunden."}
         if field.field_type != "property":
             return {"success": False, "error": "Nur Straßen haben Gebäude."}
         group = [f for f in self.board if f.color_group == field.color_group and f.field_type == "property"]
@@ -1034,45 +1057,107 @@ class Game:
                     f"Verkaufe zuerst Häuser oder nimm eine Hypothek auf (Gesamtvermögen: {total} €)."}
         return {"success": True}
 
-    def send_trade(self, from_user, to_user, my_props, my_money, their_props, their_money) -> dict:
+    # ── Handel: mehrere parallel, Storno, Jailcards, Asset-Lock ──────────
+    def _trade_locks(self, exclude_id=None):
+        """Von laufenden Handelsangeboten gebundene Assets."""
+        locked_props = set()
+        locked_cards = {}
+        for t in self.trades:
+            if exclude_id and t.get("id") == exclude_id:
+                continue
+            for pn in t.get("my_props", []) + t.get("their_props", []):
+                locked_props.add(pn)
+            locked_cards[t["from"]] = locked_cards.get(t["from"], 0) + t.get("my_jail_cards", 0)
+            locked_cards[t["to"]] = locked_cards.get(t["to"], 0) + t.get("their_jail_cards", 0)
+        return locked_props, locked_cards
+
+    def _find_trade(self, trade_id):
+        return next((t for t in self.trades if t.get("id") == trade_id), None)
+
+    def _next_trade_id(self):
+        while True:
+            tid = "t" + str(random.getrandbits(32))
+            if not self._find_trade(tid):
+                return tid
+
+    def send_trade(self, from_user, to_user, my_props, my_money, their_props, their_money,
+                   my_jail_cards=0, their_jail_cards=0) -> dict:
         sender = next((p for p in self.players if p.username == from_user), None)
         receiver = next((p for p in self.players if p.username == to_user), None)
         if not sender or not receiver:
             return {"success": False, "error": "Spieler nicht gefunden."}
-        if self.active_trade:
-            return {"success": False, "error": "Es läuft bereits ein Handel."}
+        if from_user == to_user:
+            return {"success": False, "error": "Du kannst nicht mit dir selbst handeln."}
+        if sender.is_bankrupt or receiver.is_bankrupt:
+            return {"success": False, "error": "Ein bankrotter Spieler kann nicht handeln."}
+        my_jail_cards = max(0, int(my_jail_cards or 0))
+        their_jail_cards = max(0, int(their_jail_cards or 0))
+        my_money = max(0, int(my_money or 0))
+        their_money = max(0, int(their_money or 0))
+        if not my_props and not their_props and not my_money and not their_money \
+                and not my_jail_cards and not their_jail_cards:
+            return {"success": False, "error": "Angebot ist leer."}
+        if len(my_props) != len(set(my_props)) or len(their_props) != len(set(their_props)):
+            return {"success": False, "error": "Doppelte Grundstücke im Angebot."}
         for pn in my_props:
             if not any(f.name == pn for f in sender.properties):
                 return {"success": False, "error": f"Du besitzt '{pn}' nicht."}
         for pn in their_props:
             if not any(f.name == pn for f in receiver.properties):
                 return {"success": False, "error": f"{to_user} besitzt '{pn}' nicht."}
-        if my_money < 0 or their_money < 0:
-            return {"success": False, "error": "Negativer Geldbetrag nicht möglich."}
-        if sender.money < my_money:
+        if my_money > sender.money:
             return {"success": False, "error": "Nicht genug Geld."}
+        if their_money > receiver.money:
+            return {"success": False, "error": f"{to_user} hat nicht genug Geld."}
+        if my_jail_cards > sender.get_out_of_jail_cards:
+            return {"success": False, "error": "Du hast nicht so viele Gefängnisfreikarten."}
+        if their_jail_cards > receiver.get_out_of_jail_cards:
+            return {"success": False, "error": f"{to_user} hat nicht so viele Gefängnisfreikarten."}
+        locked_props, locked_cards = self._trade_locks()
+        for pn in list(my_props) + list(their_props):
+            if pn in locked_props:
+                return {"success": False, "error": f"'{pn}' ist bereits in einem anderen Handel gebunden."}
+        if locked_cards.get(from_user, 0) + my_jail_cards > sender.get_out_of_jail_cards:
+            return {"success": False, "error": "Deine Gefängnisfreikarten sind bereits in einem anderen Handel gebunden."}
+        if locked_cards.get(to_user, 0) + their_jail_cards > receiver.get_out_of_jail_cards:
+            return {"success": False, "error": f"{to_user}s Gefängnisfreikarten sind bereits in einem anderen Handel gebunden."}
 
-        self.active_trade = {
+        trade = {
+            "id": self._next_trade_id(),
             "from": from_user,
             "to": to_user,
-            "my_props": my_props,
+            "my_props": list(my_props),
             "my_money": my_money,
-            "their_props": their_props,
+            "my_jail_cards": my_jail_cards,
+            "their_props": list(their_props),
             "their_money": their_money,
-            "history": [{"by": from_user, "action": f"Angebot gesendet: {len(my_props)} Grundstück(e) + {my_money}€ gegen {len(their_props)} Grundstück(e) + {their_money}€"}],
+            "their_jail_cards": their_jail_cards,
+            "history": [{"by": from_user, "action": f"Angebot gesendet: {len(my_props)} Grundstück(e) + {my_money}€ + {my_jail_cards} Freikarte(n) gegen {len(their_props)} Grundstück(e) + {their_money}€ + {their_jail_cards} Freikarte(n)"}],
         }
+        self.trades.append(trade)
         self._sys_chat(f"🤝 {from_user} möchte mit {to_user} handeln")
         return {"success": True}
 
-    def respond_trade(self, responder: str, action: str, counter: Optional[dict] = None) -> dict:
-        trade = self.active_trade
+    def cancel_trade(self, username: str, trade_id: str) -> dict:
+        trade = self._find_trade(trade_id)
         if not trade:
-            return {"success": False, "error": "Kein aktiver Handel."}
+            return {"success": False, "error": "Handel nicht gefunden."}
+        if username != trade["from"]:
+            return {"success": False, "error": "Nur der Anbieter kann diesen Handel zurücknehmen."}
+        self.trades = [t for t in self.trades if t.get("id") != trade_id]
+        self.status_message = f"{username} hat das Handelsangebot zurückgenommen."
+        self._sys_chat(f"↩️ {username} hat das Handelsangebot an {trade['to']} zurückgenommen")
+        return {"success": True}
+
+    def respond_trade(self, responder: str, trade_id: str, action: str, counter=None) -> dict:
+        trade = self._find_trade(trade_id)
+        if not trade:
+            return {"success": False, "error": "Handel nicht gefunden."}
         if responder != trade["to"]:
             return {"success": False, "error": "Du bist nicht der Empfänger."}
 
         if action == "reject":
-            self.active_trade = None
+            self.trades = [t for t in self.trades if t.get("id") != trade_id]
             self.status_message = f"{responder} hat den Handel abgelehnt."
             self._sys_chat(f"❌ {responder} hat den Handel abgelehnt")
             return {"success": True}
@@ -1083,27 +1168,17 @@ class Game:
         if action == "counter":
             if not counter:
                 return {"success": False, "error": "Kein Gegenangebot angegeben."}
-            if counter.get("my_money", 0) < 0 or counter.get("their_money", 0) < 0:
-                return {"success": False, "error": "Negativer Geldbetrag nicht möglich."}
-            new_trade = {
-                "from": responder,
-                "to": trade["from"],
-                "my_props": counter.get("my_props", []),
-                "my_money": counter.get("my_money", 0),
-                "their_props": counter.get("their_props", []),
-                "their_money": counter.get("their_money", 0),
-                "history": trade["history"] + [{"by": responder, "action": f"Gegenangebot: {len(counter.get('my_props',[]))} Grundstück(e) + {counter.get('my_money',0)}€ gegen {len(counter.get('their_props',[]))} Grundstück(e) + {counter.get('their_money',0)}€"}],
-            }
-            sender = next((p for p in self.players if p.username == responder), None)
-            orig_sender = next((p for p in self.players if p.username == trade["from"]), None)
-            if sender and orig_sender:
-                for pn in counter.get("my_props", []):
-                    if not any(f.name == pn for f in sender.properties):
-                        return {"success": False, "error": f"Du besitzt '{pn}' nicht."}
-                for pn in counter.get("their_props", []):
-                    if not any(f.name == pn for f in orig_sender.properties):
-                        return {"success": False, "error": f"{trade['from']} besitzt dieses Grundstück nicht."}
-            self.active_trade = new_trade
+            self.trades = [t for t in self.trades if t.get("id") != trade_id]
+            result = self.send_trade(
+                responder, trade["from"],
+                counter.get("my_props", []), counter.get("my_money", 0),
+                counter.get("their_props", []), counter.get("their_money", 0),
+                counter.get("my_jail_cards", 0), counter.get("their_jail_cards", 0),
+            )
+            if not result.get("success"):
+                return result
+            new_trade = self.trades[-1]
+            new_trade["history"] = trade["history"] + new_trade["history"]
             self._sys_chat(f"↩ {responder} hat ein Gegenangebot an {trade['from']} gesendet")
             return {"success": True}
 
@@ -1113,26 +1188,34 @@ class Game:
         sender = next((p for p in self.players if p.username == trade["from"]), None)
         receiver = next((p for p in self.players if p.username == trade["to"]), None)
         if not sender or not receiver:
-            self.active_trade = None
+            self.trades = [t for t in self.trades if t.get("id") != trade.get("id")]
             return {"success": False, "error": "Spieler nicht gefunden."}
 
         sender_pays = trade.get("my_money", 0)
         receiver_pays = trade.get("their_money", 0)
         if sender_pays < 0 or receiver_pays < 0:
-            self.active_trade = None
+            self.trades = [t for t in self.trades if t.get("id") != trade.get("id")]
             return {"success": False, "error": "Negativer Geldbetrag nicht möglich."}
+        if sender_pays > sender.money or receiver_pays > receiver.money:
+            self.trades = [t for t in self.trades if t.get("id") != trade.get("id")]
+            return {"success": False, "error": "Nicht genug Geld – Handel platzt."}
+
+        for pn in trade.get("my_props", []):
+            if not any(f.name == pn for f in sender.properties):
+                self.trades = [t for t in self.trades if t.get("id") != trade.get("id")]
+                return {"success": False, "error": f"{sender.username} besitzt '{pn}' nicht mehr."}
+        for pn in trade.get("their_props", []):
+            if not any(f.name == pn for f in receiver.properties):
+                self.trades = [t for t in self.trades if t.get("id") != trade.get("id")]
+                return {"success": False, "error": f"{receiver.username} besitzt '{pn}' nicht mehr."}
+
+        my_cards = min(trade.get("my_jail_cards", 0), sender.get_out_of_jail_cards)
+        their_cards = min(trade.get("their_jail_cards", 0), receiver.get_out_of_jail_cards)
 
         if sender_pays > 0:
-            if sender.money < sender_pays:
-                self.active_trade = None
-                return {"success": False, "error": f"{sender.username} hat nicht genug Geld."}
             sender.money -= sender_pays
             receiver.money += sender_pays
-
         if receiver_pays > 0:
-            if receiver.money < receiver_pays:
-                self.active_trade = None
-                return {"success": False, "error": f"{receiver.username} hat nicht genug Geld."}
             receiver.money -= receiver_pays
             sender.money += receiver_pays
 
@@ -1150,7 +1233,12 @@ class Game:
                 prop.owner = sender
                 sender.properties.append(prop)
 
-        self.active_trade = None
+        sender.get_out_of_jail_cards -= my_cards
+        receiver.get_out_of_jail_cards += my_cards
+        receiver.get_out_of_jail_cards -= their_cards
+        sender.get_out_of_jail_cards += their_cards
+
+        self.trades = [t for t in self.trades if t.get("id") != trade.get("id")]
         self.status_message = f"Handel zwischen {sender.username} und {receiver.username} abgeschlossen!"
         self._sys_chat(f"✅ Handel zwischen {sender.username} und {receiver.username} erfolgreich abgeschlossen!")
         self.last_event = {"type": "trade", "a": sender.username, "b": receiver.username}
@@ -1166,6 +1254,9 @@ class Game:
         field = next((f for f in self.board if f.name == property_name), None)
         if not field or field not in player.properties:
             return {"success": False, "error": "Dieses Grundstück gehört dir nicht."}
+        locked_props, _ = self._trade_locks()
+        if field.name in locked_props:
+            return {"success": False, "error": f"'{field.name}' ist in einem laufenden Handel gebunden."}
         if field.is_mortgaged:
             return {"success": False, "error": "Bereits verpfändet."}
         if field.houses > 0:
@@ -1185,6 +1276,9 @@ class Game:
         field = next((f for f in self.board if f.name == property_name), None)
         if not field or field not in player.properties:
             return {"success": False, "error": "Dieses Grundstück gehört dir nicht."}
+        locked_props, _ = self._trade_locks()
+        if field.name in locked_props:
+            return {"success": False, "error": f"'{field.name}' ist in einem laufenden Handel gebunden."}
         if not field.is_mortgaged:
             return {"success": False, "error": "Keine Hypothek vorhanden."}
         mortgage_val = field.price // 2
@@ -1206,6 +1300,9 @@ class Game:
             return {"success": False, "error": "Du bist nicht im Gefängnis."}
         if player.get_out_of_jail_cards < 1:
             return {"success": False, "error": "Keine Gefängnisfreikarte vorhanden."}
+        _, locked_cards = self._trade_locks()
+        if player.get_out_of_jail_cards - locked_cards.get(username, 0) < 1:
+            return {"success": False, "error": "Alle Gefängnisfreikarten sind in einem Handel gebunden."}
         player.get_out_of_jail_cards -= 1
         player.in_jail = False
         player.jail_turns = 0
@@ -1235,6 +1332,7 @@ class Game:
         player = next((p for p in self.players if p.username == username), None)
         if not player:
             return {"success": False, "error": "Spieler nicht gefunden."}
+        self.trades = [t for t in self.trades if t["from"] != username and t["to"] != username]
         player.is_disconnected = True
         self._sys_chat(f"👋 {username} hat den Raum verlassen.")
         self.status_message = f"{username} hat das Spiel verlassen."
@@ -1253,6 +1351,7 @@ class Game:
         player = next((p for p in self.players if p.username == target_username), None)
         if not player:
             return {"success": False, "error": "Spieler nicht gefunden."}
+        self.trades = [t for t in self.trades if t["from"] != target_username and t["to"] != target_username]
         for prop in player.properties:
             prop.owner = None
             prop.houses = 0
@@ -1276,6 +1375,8 @@ class Game:
         self.movement_this_turn = False
 
     def _turn_deadline(self):
+        if not self.started:
+            return None
         if not self.players:
             return None
         active = [p for p in self.players if not p.is_bankrupt and not p.is_disconnected]
@@ -1284,7 +1385,7 @@ class Game:
         if self.movement_this_turn:
             return None
         if (self.pending_rent or self.pending_tax or self.pending_card
-                or self.active_trade or self.active_casino or self.pending_casino):
+                or self.trades or self.active_casino or self.pending_casino):
             return None
         if self.last_event and self.last_event.get("type") in ("winner", "draw"):
             return None
@@ -1391,12 +1492,13 @@ class Game:
             "pending_rent": self.pending_rent,
             "incoming_rent_offer": self.incoming_rent_offer,
             "pending_tax": self.pending_tax,
-            "active_trade": self.active_trade,
+            "trades": self.trades,
             "free_parking_pot": self.free_parking_pot,
             "pending_card": self.pending_card,
             "chat_messages": self.chat_messages,
             "host_id": self.host_id,
             "host_username": self.host_username,
+            "started": self.started,
             "turn_started_at": self.turn_started_at,
             "movement_this_turn": self.movement_this_turn,
             "active_casino": self.active_casino,
@@ -1482,12 +1584,13 @@ class Game:
         game.pending_rent = data.get("pending_rent")
         game.incoming_rent_offer = data.get("incoming_rent_offer")
         game.pending_tax = data.get("pending_tax")
-        game.active_trade = data.get("active_trade")
+        game.trades = list(data.get("trades") or [])
         game.free_parking_pot = int(data.get("free_parking_pot", 0) or 0)
         game.pending_card = data.get("pending_card")
         game.chat_messages = list(data.get("chat_messages") or [])
         game.host_id = data.get("host_id", "")
         game.host_username = data.get("host_username", "")
+        game.started = bool(data.get("started", False))
         game.movement_this_turn = bool(data.get("movement_this_turn", False))
         game.active_casino = data.get("active_casino")
         game.pending_casino = data.get("pending_casino")   # ← NEU
@@ -1514,9 +1617,10 @@ class Game:
             "pending_rent": self.pending_rent,
             "incoming_rent_offer": self.incoming_rent_offer,
             "pending_tax": self.pending_tax,
-            "incoming_trade": self.active_trade,
+            "trades": self.trades,
             "last_move": self.last_move,
             "host_username": self.host_username,
+            "started": self.started,
             "pending_card": self.pending_card,
             "winner": self.last_event.get("player") if self.last_event and self.last_event.get("type") == "winner" else None,
             "free_parking_pot": self.free_parking_pot,

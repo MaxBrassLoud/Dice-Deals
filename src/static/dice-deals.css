@@ -603,3 +603,40 @@ body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); 
 .field.my-position::after { font-size: clamp(4px, .55cqi, 7px); }
 /* Casino-Zuschauer-Hinweis */
 .casino-spec { font-size:11px; font-weight:700; color:var(--text2); background:rgba(48,54,61,.35); border:1px solid var(--border); border-radius:6px; padding:6px 10px; margin-bottom:10px; text-align:center; }
+
+/* Trade overview: parallel offers + cancel */
+.trades-list { display:flex; flex-direction:column; gap:10px; max-height:58vh; overflow-y:auto; padding-right:2px; }
+.trade-card { background:var(--bg3); border:1px solid var(--border); border-radius:var(--rl); padding:12px 14px; }
+.trade-card.incoming { border-left:3px solid var(--warning); }
+.trade-card.outgoing { border-left:3px solid var(--accent); }
+.tc-head { display:flex; align-items:center; gap:8px; margin-bottom:8px; }
+.tc-head .tdot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+.tc-name { font-weight:700; font-size:13px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tc-badge { font-size:9px; font-weight:800; text-transform:uppercase; letter-spacing:.5px; padding:2px 7px; border-radius:10px; flex-shrink:0; }
+.tc-badge.incoming { background:rgba(227,179,65,.15); color:var(--warning); border:1px solid rgba(227,179,65,.4); }
+.tc-badge.outgoing { background:rgba(88,166,255,.12); color:var(--accent); border:1px solid rgba(88,166,255,.35); }
+.tc-cols { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.tc-chips { display:flex; flex-wrap:wrap; gap:4px; min-height:22px; }
+.tc-status { font-size:11px; color:var(--text2); margin-top:8px; }
+.tc-status b { color:var(--text); }
+.tc-actions { display:flex; gap:8px; margin-top:10px; }
+.tc-actions .btn { flex:1; margin-bottom:0; padding:7px 8px; font-size:12px; }
+.trade-empty { text-align:center; color:var(--text2); font-size:12.5px; line-height:1.6; background:var(--bg3); border:1px dashed var(--border); border-radius:var(--rl); padding:24px 16px; }
+.cards-row { display:flex; align-items:center; gap:10px; margin-bottom:4px; font-size:11px; }
+.stepper { display:inline-flex; align-items:center; gap:8px; background:var(--bg3); border:1px solid var(--border); border-radius:var(--r); padding:3px 6px; }
+.stepper button { width:24px; height:24px; border-radius:6px; border:1px solid var(--border); background:var(--bg4); color:var(--text); font-size:14px; font-weight:700; line-height:1; cursor:pointer; transition:all .15s; }
+.stepper button:hover:not(:disabled) { border-color:var(--accent); color:var(--accent); }
+.stepper .cnt { min-width:18px; text-align:center; font-weight:700; font-size:13px; font-family:'JetBrains Mono',monospace; }
+.tprop.locked { opacity:.45; cursor:not-allowed; border-style:dashed; }
+.tprop.locked:hover { border-color:var(--border); }
+@media(max-width:520px) { .tc-cols { grid-template-columns:1fr; } }
+
+/* Center start button (host) + wait text (guests) */
+.center-start-btn { margin-top:10px; font-size:14px; font-weight:800; padding:10px 22px; width:auto; animation:centerStartPulse 1.6s ease-in-out infinite; }
+.center-start-btn:hover { transform:scale(1.06); }
+@keyframes centerStartPulse {
+  0%,100% { box-shadow:0 0 0 0 rgba(63,185,80,.55); transform:scale(1); }
+  50%     { box-shadow:0 0 0 9px rgba(63,185,80,0); transform:scale(1.045); }
+}
+.center-wait { margin-top:10px; font-size:11px; color:var(--text2); text-align:center; line-height:1.5; }
+.center-wait .cw-sub { font-size:10px; }

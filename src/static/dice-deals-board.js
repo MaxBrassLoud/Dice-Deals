@@ -169,7 +169,7 @@ function renderBoard(s) {
             const isMyField = !!s.players?.some(p => p.username === ME && p.position === fi && !p.is_bankrupt);
             if (isCurrentField) {
                 el.classList.add("current-turn");
-                el.style.setProperty("--pc", curP.avatar_color || PCOLORS[curP.color] || "#e3b341");
+                el.style.setProperty("--pc", PCOLORS[curP.color] || curP.avatar_color || "#e3b341");
             }
             if (isMyField) el.classList.add("my-position");
             if (isCorner) {
@@ -219,7 +219,7 @@ function renderBoard(s) {
                     // damit Karte, Token und Besitzmarkierung überall übereinstimmen.
                     const owner = s.players.find(pl => pl.username === f.owner);
                     const ownerColor = owner
-                        ? (owner.avatar_color || PCOLORS[owner.color] || "#888")
+                        ? (PCOLORS[owner.color] || owner.avatar_color || "#888")
                         : (PCOLORS[f.owner_color] || "#888");
                     el.style.setProperty("--owner-color", ownerColor);
                     el.classList.add("owned");
@@ -238,7 +238,7 @@ function renderBoard(s) {
                 here.forEach(p => {
                     const t = document.createElement("div");
                     t.className = "token" + (p.username === s.current_player ? " highlight" : "") + (p.username === ME ? " me" : "");
-                    t.style.background = `linear-gradient(135deg,${p.avatar_color||PCOLORS[p.color]||'#888'},${(p.avatar_color||PCOLORS[p.color]||'#888')}cc)`;
+                    t.style.background = `linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc)`;
                     t.title = p.username;
                     t.innerHTML = avatarContent(p);
                     t.style.fontSize = 'clamp(4px,0.8cqi,10px)';
@@ -260,10 +260,13 @@ function renderBoard(s) {
     center.className = "field center-area";
     center.style.gridColumn = "2/11";
     center.style.gridRow    = "2/11";
-    const pips = s.players.map(p => `<div class="center-pip"><div class="cpip-dot" style="background:linear-gradient(135deg,${p.avatar_color||PCOLORS[p.color]||'#888'},${(p.avatar_color||PCOLORS[p.color]||'#888')}cc);font-size:10px;display:flex;align-items:center;justify-content:center;">${avatarContent(p)}</div>${p.username.substring(0,8)}</div>`).join("");
+    const pips = s.players.map(p => `<div class="center-pip"><div class="cpip-dot" style="background:linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc);font-size:10px;display:flex;align-items:center;justify-content:center;">${avatarContent(p)}</div>${p.username.substring(0,8)}</div>`).join("");
     const pot = s.free_parking_pot || 0;
     const potHTML = pot > 0 ? `<div class="parking-pot">🅿️ <span>${pot.toLocaleString("de-DE")} €</span></div>` : `<div class="parking-pot empty">🅿️ Topf leer</div>`;
-    center.innerHTML = `<div class="center-logo"><div class="title">Dice Deals</div><div class="sub">${s.players.length} Spieler${s.current_player ? " · " + s.current_player + " am Zug" : ""}</div>${potHTML}<div class="player-pips">${pips}</div></div>`;
+    const startHTML = s.started ? "" : (IS_HOST
+        ? `<button class="btn success center-start-btn" id="btn-start-game" onclick="startGame()">▶ Spiel starten</button>`
+        : `<div class="center-wait">⏳ Warte auf Spielstart des Hosts…<br><span class="cw-sub">${s.players.length} Spieler im Raum</span></div>`);
+    center.innerHTML = `<div class="center-logo"><div class="title">Dice Deals</div><div class="sub">${s.players.length} Spieler${s.current_player ? " · " + s.current_player + " am Zug" : ""}</div>${potHTML}<div class="player-pips">${pips}</div></div>${startHTML}`;
     bd.appendChild(center);
 }
 

@@ -36,9 +36,6 @@ let pendingRent = null;
 let selOfferProp = null;
 let incomingRentOffer = null;
 let pendingTax = null;
-let tradeTarget = null;
-let myOffer = { props:[], money:0 };
-let theirOffer = { props:[], money:0 };
 let expandedProp = null;
 
 let prevPositions = {};

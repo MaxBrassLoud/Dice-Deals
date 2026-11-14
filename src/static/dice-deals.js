@@ -14,7 +14,7 @@ function updateBtns(s) {
     const hasPendingAction = !!s.pending_tax||!!s.pending_rent||!!s.pending_card||!!s.active_casino;
     const rollBtn = document.getElementById("btn-roll");
     const canSkipBuyAfterDouble = my && ph === "roll" && !!s.can_buy && !hasPendingAction;
-    rollBtn.disabled = !my||ph!=="roll"||hasPendingAction;
+    rollBtn.disabled = !my||ph!=="roll"||hasPendingAction||!s.started;
     rollBtn.textContent = canSkipBuyAfterDouble ? "🎲 Weiter würfeln (nicht kaufen)" : "🎲 Würfeln";
     document.getElementById("btn-buy").disabled = !my||!s.can_buy||hasPendingAction;
     document.getElementById("btn-end").disabled = !my||ph==="roll"||hasPendingAction;
@@ -40,7 +40,7 @@ function updateTurnTimer(s) {
     const box = document.getElementById("turn-timer");
     if (!box) return;
     if (turnTimerInterval) { clearInterval(turnTimerInterval); turnTimerInterval = null; }
-    if (!s || !s.turn_deadline || !s.current_player ||
+    if (!s || !s.started || !s.turn_deadline || !s.current_player ||
         (s.last_event && (s.last_event.type === "winner" || s.last_event.type === "draw"))) {
         box.style.display = "none";
         return;
@@ -92,7 +92,7 @@ function checkWinner(s) {
         sorted.forEach((p, i) => {
             const row = document.createElement("div"); row.className = "rank-row" + (i === 0 ? " rank-1" : "");
             const status = p.is_bankrupt ? "💀 Bankrott" : p.is_disconnected ? "👋 Verlassen" : `${assetVal(p).toLocaleString("de-DE")} €`;
-            row.innerHTML = `<span class="rank-medal">${medals[i] || `${i+1}.`}</span><div class="player-avatar" style="width:26px;height:26px;font-size:14px;background:linear-gradient(135deg,${p.avatar_color||PCOLORS[p.color]||'#888'},${(p.avatar_color||PCOLORS[p.color]||'#888')}cc);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:800;flex-shrink:0;">${avatarContent(p)}</div><span class="rank-name">${p.username}</span><span class="rank-val">${status}</span>`;
+            row.innerHTML = `<span class="rank-medal">${medals[i] || `${i+1}.`}</span><div class="player-avatar" style="width:26px;height:26px;font-size:14px;background:linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:800;flex-shrink:0;">${avatarContent(p)}</div><span class="rank-name">${p.username}</span><span class="rank-val">${status}</span>`;
             ranking.appendChild(row);
         });
     }
@@ -164,6 +164,20 @@ function showJoinModal() {
     });
     document.getElementById("color-label").textContent = selColor.charAt(0).toUpperCase() + selColor.slice(1);
     openOv("ov-join");
+}
+async function startGame() {
+    const btn = document.getElementById("btn-start-game");
+    if (btn) btn.disabled = true;
+    const res = await fetch("/api/game/start", { method: "POST" });
+    if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        toast("❌", d.error || "Fehler beim Starten");
+        if (btn) btn.disabled = false;
+        return;
+    }
+    GS = await res.json();
+    updateUI(GS);
+    toast("🎲", "Das Spiel hat begonnen!");
 }
 async function joinGame() {
     const res = await fetch("/api/game/join", {
