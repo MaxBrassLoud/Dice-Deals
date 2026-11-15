@@ -24,7 +24,7 @@ document.querySelectorAll(".overlay, .kicked-overlay, .winner-overlay").forEach(
 
 function showKickedScreen() {
     document.getElementById("kicked-overlay").classList.add("show");
-    if (pollTm) clearInterval(pollTm);
+    if (eventSource) { eventSource.close(); eventSource = null; }
 }
 
 function checkIfKicked(s) {

@@ -1,6 +1,6 @@
 /* =====================================================================
- * Dice Deals – Hauptdatei (UI-Update, Aktionen, Join/Invite, Polling)
- * ZULETZT laden: enthält die einzigen Top-Level-Aufrufe init()/scheduleStateRefresh().
+ * Dice Deals – Hauptdatei (UI-Update, Aktionen, Join/Invite, SSE)
+ * ZULETZT laden: enthält die einzigen Top-Level-Aufrufe init().
  * ===================================================================== */
 
 
@@ -97,7 +97,6 @@ function checkWinner(s) {
         });
     }
     document.getElementById("winner-overlay").classList.add("show");
-    clearInterval(pollTm);
 }
 
 /* ── Aktionen ──────────────────────────────────────────── */
@@ -242,13 +241,18 @@ async function joinGame() {
         GS = data;
         updateUI(GS);
         toast("🎉", `Beigetreten als ${selColor}!`);
-        setTimeout(() => fetchState(true), 100);
+        // Raumscode client-seitig nachziehen (Server liest ihn aus der Session),
+        // damit der SSE-Guard passt, und Stream starten.
+        window.DICE_DEALS_CONFIG.roomCode = window.DICE_DEALS_CONFIG.roomCode || "joined";
+        disconnectSSE();
+        connectSSE();
+        fetchState(true);
     } else {
         toast("❌", data.error || "Fehler beim Beitreten");
     }
 }
 
-/* ── State-Fetching ────────────────────────────────────── */
+/* ── State-Fetching (Initial-Load + Fallback) ────────────── */
 async function fetchState(silent=false) {
     if (stateRequestInFlight) return;
     stateRequestInFlight = true;
@@ -270,6 +274,42 @@ async function fetchState(silent=false) {
         }
     } catch(e) { console.error(e); }
     finally { stateRequestInFlight = false; }
+}
+
+
+/* ── SSE (Server-Sent Events) für Echtzeit-Updates ───────── */
+function connectSSE() {
+    if (eventSource) return; // bereits verbunden
+    const code = window.DICE_DEALS_CONFIG?.roomCode;
+    if (!code) return;
+
+    eventSource = new EventSource("/api/game/stream");
+    eventSource.onmessage = (e) => {
+        try {
+            const ns = JSON.parse(e.data);
+            const oldSt = GS?.status;
+            GS = ns;
+            const meInGame = GS.players?.some(p => p.username === ME);
+            if (meInGame && checkIfKicked(GS)) return;
+            updateUI(GS);
+            if (oldSt !== GS.status && GS.last_event) {
+                const icons = { jail:"⛓️", rent:"💸", card:"🃏", tax:"🏛️", bankrupt:"💀", land_empty:"🏷️", build:"🏗️", sell_building:"🔨", free_parking:"🅿️", jail_buyout:"🔓", jail_card_used:"🃏", mortgage:"🏦", unmortgage:"✅", trade:"🤝", disconnect:"👋" };
+                toast(icons[GS.last_event.type] || "📢", GS.status || "");
+            }
+        } catch(err) { console.error("SSE parse error", err); }
+    };
+    eventSource.onerror = () => {
+        // Browser versucht automatisch zu reconnecten.
+        // Bei dauerhaftem Fehler (z.B. 404 weil Raum verlassen) stoppen wir.
+        console.warn("SSE connection error, will retry...");
+    };
+}
+
+function disconnectSSE() {
+    if (eventSource) {
+        eventSource.close();
+        eventSource = null;
+    }
 }
 
 
@@ -355,6 +395,9 @@ async function init() {
         showJoinModal();
     }
 
+    // SSE-Verbindung für Echtzeit-Updates aufbauen
+    connectSSE();
+
     loadFriendsForInvite();
 }
 
@@ -422,20 +465,23 @@ function openInviteModal() {
     openOv("ov-invite");
 }
 
-/* ── Polling ───────────────────────────────────────────── */
-init();
-
-function scheduleStateRefresh() {
-    clearTimeout(pollTm);
-    const delay = document.hidden ? 15000 : 5000;
-    pollTm = setTimeout(async () => {
-        await fetchState(true);
-        scheduleStateRefresh();
-    }, delay);
-}
+/* ── Cleanup bei Page-Unload / Sichtbarkeitswechsel ────── */
 document.addEventListener("visibilitychange", () => {
-    if (!document.hidden) fetchState(true);
-    scheduleStateRefresh();
+    if (document.hidden) {
+        // Tab versteckt: Connection offen lassen, Browser reconnectet automatisch
+    } else {
+        // Tab wieder sichtbar: Falls Connection gestorben, reconnect forcieren
+        if (eventSource && eventSource.readyState === EventSource.CLOSED) {
+            disconnectSSE();
+            connectSSE();
+        } else if (!eventSource) {
+            connectSSE();
+        }
+    }
 });
 
-scheduleStateRefresh();
+window.addEventListener("beforeunload", () => {
+    disconnectSSE();
+});
+
+init();

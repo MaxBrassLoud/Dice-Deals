@@ -1,6 +1,7 @@
 import os
 import hashlib
 import json
+import queue
 import random
 import secrets
 import string
@@ -24,6 +25,7 @@ from database import (create_database, create_user, get_user_by_username,
                       update_user_display_name, is_display_name_available)
 from ID_Creator import create_user_id
 from game_logic import Game, active_games, normalize_settings
+from sse_manager import push as sse_push, subscribe as sse_subscribe, unsubscribe as sse_unsubscribe
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -324,6 +326,8 @@ def save_game_after_request(response):
     if response.status_code < 400 and code and code in active_games and mutates_game:
         bump_game_revision(code)
         persist_game(code, active_games[code])
+        # Echtzeit-Push an alle verbundenen SSE-Clients dieses Raums.
+        sse_push(code, active_games[code].to_dict())
     return response
 
 
@@ -595,6 +599,40 @@ def game_state():
         response = make_response(jsonify(game.to_dict()))
     response.set_etag(revision)
     response.headers["Cache-Control"] = "private, no-cache"
+    return response
+
+
+@app.route('/api/game/stream')
+@login_required
+def game_stream():
+    # Real-time Server-Sent-Events (SSE)-Stream für den Spielraum.
+    # Client verbindet sich einmal pro Raum, bekommt jede Änderung.
+    code = session.get("room_code")
+    if not code:
+        return "", 404
+
+    def generate():
+        q = sse_subscribe(code)
+        try:
+            # Heartbeat alle 25s, damit Proxies/Load-Balancer die Verbindung nicht schließen.
+            last_heartbeat = time.time()
+            while True:
+                try:
+                    payload = q.get(timeout=5)
+                except queue.Empty:
+                    if time.time() - last_heartbeat > 25:
+                        yield ": heartbeat\n\n"
+                        last_heartbeat = time.time()
+                    continue
+                yield f"data: {payload}\n\n"
+                last_heartbeat = time.time()
+        finally:
+            sse_unsubscribe(code, q)
+
+    response = app.response_class(generate(), mimetype="text/event-stream")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["X-Accel-Buffering"] = "no"
+    response.headers["Connection"] = "keep-alive"
     return response
 
 def _require_my_turn(game):

@@ -280,7 +280,7 @@
         let currentUser = null;
         let guildMembers = [];
         let roomCode = null;
-        let pollInterval = null;
+        let eventSource = null;
 
         async function initDiscord() {
             try {
@@ -358,7 +358,7 @@
                     roomCode = data.code;
                     document.getElementById('room-code').textContent = roomCode;
                     document.getElementById('start-btn').disabled = false;
-                    startPolling();
+                    connectSSE();
                 }
             } catch(e) { console.error(e); }
         }
@@ -377,16 +377,18 @@
             window.location.href = `/dice-deals`;
         }
 
-        function startPolling() {
-            pollInterval = setInterval(async () => {
+        function connectSSE() {
+            if (eventSource) return;
+            eventSource = new EventSource('/api/game/stream');
+            eventSource.onmessage = (e) => {
                 try {
-                    const res = await fetch('/api/game/state');
-                    if (res.ok) {
-                        const state = await res.json();
-                        updateLobbyFromState(state);
-                    }
-                } catch(e) {}
-            }, 2000);
+                    const state = JSON.parse(e.data);
+                    updateLobbyFromState(state);
+                } catch(err) { console.error('SSE parse error', err); }
+            };
+            eventSource.onerror = () => {
+                console.warn('SSE connection error, will retry...');
+            };
         }
 
         function updateLobbyFromState(state) {

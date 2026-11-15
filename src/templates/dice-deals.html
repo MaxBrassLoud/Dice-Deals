@@ -277,7 +277,8 @@
 <!-- Konfiguration → JS-Datei greift darauf zu -->
 <script>
     window.DICE_DEALS_CONFIG = {
-        username: {{ session['username'] | tojson }}
+        username: {{ session['username'] | tojson }},
+        roomCode: {{ room_code | tojson }}
     };
 </script>
 <script src="{{ url_for('static', filename='dice-deals-state.js') }}"></script>
