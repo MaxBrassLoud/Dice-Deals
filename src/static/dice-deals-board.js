@@ -263,10 +263,16 @@ function renderBoard(s) {
     const pips = s.players.map(p => `<div class="center-pip"><div class="cpip-dot" style="background:linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc);font-size:10px;display:flex;align-items:center;justify-content:center;">${avatarContent(p)}</div>${p.username.substring(0,8)}</div>`).join("");
     const pot = s.free_parking_pot || 0;
     const potHTML = pot > 0 ? `<div class="parking-pot">🅿️ <span>${pot.toLocaleString("de-DE")} €</span></div>` : `<div class="parking-pot empty">🅿️ Topf leer</div>`;
+    const st = s.settings || {};
+    const settingsSummary =
+        `💵 ${(st.start_money ?? 1500).toLocaleString("de-DE")} € Start · 🚀 ${(st.go_salary ?? 200).toLocaleString("de-DE")} € Los-Gehalt · ✖️ ${(st.cost_multiplier ?? 1)} Kosten · ⏳ ${st.turn_timeout ?? 20}s` +
+        `<br>🎰 Gambling ${st.gambling_cards ? "an" : "aus"} · 🅿️ Topf ${st.fees_to_pot ? "an" : "aus"} · ⏰ Strafe ${(st.timeout_penalty ?? 0).toLocaleString("de-DE")} € · 💰×2 Los ${st.double_go_landing ? "an" : "aus"}`;
+    const settingsBtn = IS_HOST
+        ? `<button class="btn center-settings-btn" id="btn-settings" onclick="openGameSettingsModal()">⚙️ Einstellungen</button>` : "";
     const startHTML = s.started ? "" : (IS_HOST
-        ? `<button class="btn success center-start-btn" id="btn-start-game" onclick="startGame()">▶ Spiel starten</button>`
+        ? `${settingsBtn}<button class="btn success center-start-btn" id="btn-start-game" onclick="startGame()">▶ Spiel starten</button>`
         : `<div class="center-wait">⏳ Warte auf Spielstart des Hosts…<br><span class="cw-sub">${s.players.length} Spieler im Raum</span></div>`);
-    center.innerHTML = `<div class="center-logo"><div class="title">Dice Deals</div><div class="sub">${s.players.length} Spieler${s.current_player ? " · " + s.current_player + " am Zug" : ""}</div>${potHTML}<div class="player-pips">${pips}</div></div>${startHTML}`;
+    center.innerHTML = `<div class="center-logo"><div class="title">Dice Deals</div><div class="sub">${s.players.length} Spieler${s.current_player ? " · " + s.current_player + " am Zug" : ""}</div><div class="settings-summary">${settingsSummary}</div>${potHTML}<div class="player-pips">${pips}</div></div>${startHTML}`;
     bd.appendChild(center);
 }
 

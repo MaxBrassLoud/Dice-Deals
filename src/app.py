@@ -23,7 +23,7 @@ from database import (create_database, create_user, get_user_by_username,
                       update_user_room, clear_room_code_for_game,
                       update_user_display_name, is_display_name_available)
 from ID_Creator import create_user_id
-from game_logic import Game, active_games
+from game_logic import Game, active_games, normalize_settings
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -518,14 +518,15 @@ def discord_link():
 def create_room():
     leave_current_room(session["user_id"], session["username"])
     code = generate_room_code()
-    game = Game()
+    settings = normalize_settings(request.get_json(silent=True) or {})
+    game = Game(settings)
     game.host_id = session["user_id"]
     game.host_username = session["username"]
     active_games[code] = game
     session["room_code"] = code
     if not session.get("is_guest"):
         update_user_room(session["user_id"], code)
-    return jsonify({"code": code, "is_host": True}), 201
+    return jsonify({"code": code, "is_host": True, "settings": game.settings}), 201
 
 @app.route('/api/room/join', methods=['POST'])
 @login_required
@@ -549,6 +550,22 @@ def join_room():
 def leave_room():
     leave_current_room(session["user_id"], session["username"])
     return jsonify({"message": "Raum verlassen"}), 200
+
+
+@app.route('/api/room/settings', methods=['POST'])
+@login_required
+def update_room_settings():
+    game, _ = get_current_game()
+    if not game:
+        return jsonify({"error": "Kein Raum"}), 400
+    if game.host_id != session["user_id"]:
+        return jsonify({"error": "Nur der Host kann die Einstellungen aendern."}), 403
+    if game.started:
+        return jsonify({"error": "Einstellungen sind nach Spielstart gesperrt."}), 400
+    result = game.update_settings(normalize_settings(request.get_json(silent=True) or {}))
+    if not result.get("success"):
+        return jsonify({"error": result.get("error", "Fehler")}), 400
+    return jsonify(game.to_dict())
 
 @app.route('/api/room/info')
 @login_required

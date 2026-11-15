@@ -62,7 +62,7 @@ function updateTurnTimer(s) {
         const rem = Math.max(0, turnTimerDeadlineLocal - Date.now());
         const remSec = Math.ceil(rem / 1000);
         if (countEl) countEl.textContent = remSec + "s";
-        if (fillEl) fillEl.style.width = Math.max(0, Math.min(100, (rem / 20000) * 100)) + "%";
+        if (fillEl) fillEl.style.width = Math.max(0, Math.min(100, (rem / ((GS?.settings?.turn_timeout || 20) * 1000)) * 100)) + "%";
         box.classList.toggle("warning", rem <= 5000);
         if (rem <= 0 && !turnTimerFired) {
             turnTimerFired = true;
@@ -178,6 +178,57 @@ async function startGame() {
     GS = await res.json();
     updateUI(GS);
     toast("🎲", "Das Spiel hat begonnen!");
+}
+/* ── Spielereinstellungen (Host, vor Spielstart) ─────── */
+function openGameSettingsModal() {
+    const st = GS?.settings || {};
+    const set = (id, key, fallback) => { const el = document.getElementById(id); if (el) el.checked = !!st[key]; };
+    const setNum = (id, key, fallback) => { const el = document.getElementById(id); if (el) el.value = st[key] ?? fallback; };
+    set("set-gambling", "gambling_cards");
+    set("set-fees-to-pot", "fees_to_pot");
+    set("set-double-go", "double_go_landing");
+    setNum("set-timeout-penalty", "timeout_penalty", 0);
+    setNum("set-start-money", "start_money", 1500);
+    setNum("set-go-salary", "go_salary", 200);
+    setNum("set-cost-multiplier", "cost_multiplier", 1);
+    setNum("set-turn-timeout", "turn_timeout", 20);
+    openOv("ov-settings");
+}
+function readGameSettingsForm() {
+    const num = (id, fallback) => {
+        const el = document.getElementById(id);
+        const v = el ? parseFloat(el.value) : NaN;
+        return Number.isFinite(v) ? v : fallback;
+    };
+    const chk = id => { const el = document.getElementById(id); return el ? el.checked : false; };
+    return {
+        gambling_cards: chk("set-gambling"),
+        timeout_penalty: num("set-timeout-penalty", 0),
+        fees_to_pot: chk("set-fees-to-pot"),
+        double_go_landing: chk("set-double-go"),
+        start_money: num("set-start-money", 1500),
+        go_salary: num("set-go-salary", 200),
+        cost_multiplier: num("set-cost-multiplier", 1),
+        turn_timeout: num("set-turn-timeout", 20),
+    };
+}
+async function saveGameSettings() {
+    const btn = document.getElementById("settings-save-btn");
+    if (btn) btn.disabled = true;
+    try {
+        const res = await fetch("/api/room/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(readGameSettingsForm())
+        });
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { toast("❌", d.error || "Speichern fehlgeschlagen"); return; }
+        GS = d;
+        closeOv("ov-settings");
+        updateUI(GS);
+        toast("⚙️", "Einstellungen gespeichert.");
+    } catch(e) { toast("❌", "Verbindungsfehler"); }
+    finally { if (btn) btn.disabled = false; }
 }
 async function joinGame() {
     const res = await fetch("/api/game/join", {

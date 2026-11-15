@@ -120,6 +120,54 @@
     <a href="/" style="padding:14px 32px;background:var(--danger);border-radius:12px;font-weight:800;font-size:16px;color:white;text-decoration:none;display:inline-block;">🏠 Zum Dashboard</a>
 </div>
 
+<!-- GAME SETTINGS MODAL (Host, nur vor Spielstart) -->
+<div class="overlay" id="ov-settings" onclick="if(event.target===this)closeOv('ov-settings')">
+    <div class="modal settings-modal" style="max-width:460px;">
+        <h2>⚙️ Spiel-Einstellungen</h2>
+        <p style="color:var(--text2);font-size:12px;margin-bottom:12px;">Nur vor dem Spielstart änderbar. Werte gelten sofort für alle.</p>
+
+        <label class="setting-row">
+            <span>🎰 Gambling-Karten<br><small>Casino-Karten in den Decks</small></span>
+            <input type="checkbox" id="set-gambling" checked>
+        </label>
+        <label class="setting-row">
+            <span>⏰ Strafe bei Ablauf des Zug-Timers (€)<br><small>0 = keine Strafe</small></span>
+            <input type="number" id="set-timeout-penalty" class="setting-num" min="0" max="1000000" step="10" value="0">
+        </label>
+        <label class="setting-row">
+            <span>🅿️ Steuern &amp; Kartengebühren in den Topf<br><small>Ausgenommen: Gambling-Einsätze</small></span>
+            <input type="checkbox" id="set-fees-to-pot" checked>
+        </label>
+        <label class="setting-row">
+            <span>💰 Doppelter Los-Bonus beim Landen<br><small>Direkt auf Los landen = doppelter Wert</small></span>
+            <input type="checkbox" id="set-double-go">
+        </label>
+
+        <div class="section-lbl" style="margin-top:14px;">Werte</div>
+        <label class="setting-row">
+            <span>💵 Startkapital (€)</span>
+            <input type="number" id="set-start-money" class="setting-num" min="0" max="100000000" step="50" value="1500">
+        </label>
+        <label class="setting-row">
+            <span>🚀 Los-Gehalt beim Vorbeikommen (€)</span>
+            <input type="number" id="set-go-salary" class="setting-num" min="0" max="100000000" step="10" value="200">
+        </label>
+        <label class="setting-row">
+            <span>✖️ Kosten-Multiplikator<br><small>auf Kaufpreise, Mieten, Steuern, Gebühren</small></span>
+            <input type="number" id="set-cost-multiplier" class="setting-num" min="0.1" max="10" step="0.1" value="1">
+        </label>
+        <label class="setting-row">
+            <span>⏳ Zugzeit (Sekunden)</span>
+            <input type="number" id="set-turn-timeout" class="setting-num" min="5" max="300" step="5" value="20">
+        </label>
+
+        <div class="mfooter">
+            <button class="btn" onclick="closeOv('ov-settings')">Abbrechen</button>
+            <button class="btn primary" id="settings-save-btn" onclick="saveGameSettings()">Speichern</button>
+        </div>
+    </div>
+</div>
+
 <!-- CARD POPUP -->
 <div class="card-popup-overlay" id="ov-card">
     <div class="card-popup" id="card-popup-inner">

@@ -640,3 +640,26 @@ body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); 
 }
 .center-wait { margin-top:10px; font-size:11px; color:var(--text2); text-align:center; line-height:1.5; }
 .center-wait .cw-sub { font-size:10px; }
+
+/* Lobby settings summary + host settings button */
+.settings-summary { margin-top:8px; font-size:clamp(8px,1.1cqi,11px); color:var(--text2); line-height:1.6; }
+.center-settings-btn { margin-top:10px; font-size:13px; font-weight:700; padding:8px 18px; width:auto; margin-right:8px; }
+
+/* Settings modal rows */
+.settings-modal { max-width:460px; }
+.setting-row {
+    display:flex; align-items:center; justify-content:space-between; gap:14px;
+    padding:8px 0; border-bottom:1px solid rgba(51,65,85,.5);
+    font-size:13px; font-weight:600; cursor:pointer;
+}
+.setting-row small { color:var(--text2); font-weight:400; }
+.setting-row input[type="checkbox"] {
+    width:20px; height:20px; accent-color:var(--accent); cursor:pointer; flex-shrink:0;
+}
+.setting-num {
+    width:110px; padding:7px 10px; background:var(--bg);
+    border:1.5px solid var(--border); border-radius:8px;
+    color:var(--text); font-size:13px; font-weight:600;
+    text-align:right; outline:none; font-family:inherit; flex-shrink:0;
+}
+.setting-num:focus { border-color:var(--accent); }

@@ -31,4 +31,7 @@ ToDo
 - Aktuellen Spieler besser sehen
 
 - Upgraden auf Websockets oder bessere Technologie statt Polling?
-- Nach 20s warten 200€ zahlen
+- Nach 20s warten 200€ zahlen √
+
+- Spiel-Einstellungen beim Raum erstellen: Gambling-Karten an/aus, Timeout-Strafe (€), Gebühren in den Topf (Frei Parken), Doppelter Los-Bonus beim Landen, Startkapital, Kosten-Multiplikator, Los-Gehalt, Zugzeit √
+- Einstellungen im Lobby (Host, vor Spielstart) änderbar ✓

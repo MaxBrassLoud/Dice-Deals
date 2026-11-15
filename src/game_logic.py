@@ -4,7 +4,50 @@ from dataclasses import dataclass, field
 from typing import Optional, List
 
 GROUP_ORDER = ["brown","lightblue","pink","orange","red","yellow","green","darkblue","station","utility"]
-TURN_TIMEOUT_SECONDS = 20
+
+DEFAULT_SETTINGS = {
+    "gambling_cards": True,     # Casino-/Gambling-Karten in den Decks
+    "timeout_penalty": 0,       # Strafe in € wenn nicht rechtzeitig gewürfelt wird
+    "fees_to_pot": True,        # Steuern/Kartenkosten (ohne Gambling) landen im Frei-Parken-Topf
+    "double_go_landing": False, # Doppelter Los-Bonus beim direkten Landen auf Los
+    "start_money": 1500,        # Startkapital
+    "go_salary": 200,           # Gehalt beim Vorbeikommen an Los
+    "cost_multiplier": 1.0,     # Multiplikator auf alle Kosten
+    "turn_timeout": 20,         # Sekunden pro Zug
+}
+
+
+def normalize_settings(raw: dict) -> dict:
+    """Übernimmt nur bekannte Schlüssel und clamped Werte auf gültige Bereiche."""
+    out = dict(DEFAULT_SETTINGS)
+    if not isinstance(raw, dict):
+        return out
+    def as_bool(key):
+        v = raw.get(key, DEFAULT_SETTINGS[key])
+        return bool(v) if isinstance(v, (bool, int, float)) else DEFAULT_SETTINGS[key]
+    def as_int(key, lo, hi):
+        try:
+            v = int(raw.get(key, DEFAULT_SETTINGS[key]))
+        except (TypeError, ValueError):
+            v = DEFAULT_SETTINGS[key]
+        return max(lo, min(hi, v))
+    def as_float(key, lo, hi):
+        try:
+            v = float(raw.get(key, DEFAULT_SETTINGS[key]))
+        except (TypeError, ValueError):
+            v = DEFAULT_SETTINGS[key]
+        if v != v or v in (float("inf"), float("-inf")):
+            v = DEFAULT_SETTINGS[key]
+        return max(lo, min(hi, v))
+    out["gambling_cards"] = as_bool("gambling_cards")
+    out["timeout_penalty"] = as_int("timeout_penalty", 0, 1000000)
+    out["fees_to_pot"] = as_bool("fees_to_pot")
+    out["double_go_landing"] = as_bool("double_go_landing")
+    out["start_money"] = as_int("start_money", 0, 100000000)
+    out["go_salary"] = as_int("go_salary", 0, 100000000)
+    out["cost_multiplier"] = round(as_float("cost_multiplier", 0.1, 10.0), 2)
+    out["turn_timeout"] = as_int("turn_timeout", 5, 300)
+    return out
 
 CHANCE_CARDS = [
     {"text": "Gehe zu Los. Erhalte 200 €.", "action": "goto", "value": 0},
@@ -195,7 +238,7 @@ def _create_board() -> List[Field]:
 
 
 class Game:
-    def __init__(self):
+    def __init__(self, settings: Optional[dict] = None):
         self.players: List[Player] = []
         self.current_player_index = 0
         self.board = _create_board()
@@ -203,8 +246,9 @@ class Game:
         self.status_message = "Warte auf Spieler…"
         self.can_buy = False
         self.double_roll_count = 0
-        self.chance_deck = CHANCE_CARDS.copy()
-        self.community_deck = COMMUNITY_CARDS.copy()
+        self.settings = normalize_settings(settings or {})
+        self.chance_deck = self._build_deck(CHANCE_CARDS)
+        self.community_deck = self._build_deck(COMMUNITY_CARDS)
         random.shuffle(self.chance_deck)
         random.shuffle(self.community_deck)
         self.turn_phase = "roll"
@@ -238,6 +282,51 @@ class Game:
         self.host_username: str = ""
         self.active_casino: Optional[dict] = None
         self.pending_casino: Optional[dict] = None
+
+    def _build_deck(self, cards):
+        deck = [c for c in cards if self.settings["gambling_cards"] or c.get("action") != "casino"]
+        return list(deck)
+
+    def update_settings(self, raw: dict) -> dict:
+        """Nur vor Spielstart; setzt Startkapital bei allen Spielern neu auf."""
+        if self.started:
+            return {"success": False, "error": "Einstellungen sind nach Spielstart gesperrt."}
+        old = dict(self.settings)
+        merged = dict(self.settings)
+        merged.update(raw or {})
+        self.settings = normalize_settings(merged)
+        if self.settings["start_money"] != old["start_money"]:
+            for p in self.players:
+                p.money = self.settings["start_money"]
+        if self.settings["gambling_cards"] != old["gambling_cards"]:
+            self.chance_deck = self._build_deck(CHANCE_CARDS)
+            self.community_deck = self._build_deck(COMMUNITY_CARDS)
+            random.shuffle(self.chance_deck)
+            random.shuffle(self.community_deck)
+        return {"success": True}
+
+    # ── Einstellungs-Helfer ──────────────────────────────────────
+    def _cost(self, amount: float) -> int:
+        """Wendet den Kosten-Multiplikator auf einen zu zahlenden Betrag an."""
+        return int(round(amount * self.settings["cost_multiplier"]))
+
+    def _collect_fee(self, player: "Player", amount: int):
+        """Zieht eine Gebühr ein; bei fees_to_pot landet sie im Frei-Parken-Topf."""
+        player.money -= amount
+        if self.settings["fees_to_pot"]:
+            self.free_parking_pot += amount
+
+    def _salary(self) -> int:
+        return self.settings["go_salary"]
+
+    def _award_go(self, player: "Player", landed: bool):
+        salary = self._salary()
+        player.money += salary
+        if landed and self.settings["double_go_landing"]:
+            player.money += salary
+            self.status_message = f"{player.username} landet direkt auf Los und erhält {salary * 2} €!"
+        else:
+            self.status_message = f"{player.username} überquert Los und erhält {salary} €!"
 
     def _new_deck(self):
         suits = ['♠', '♥', '♦', '♣']
@@ -493,7 +582,9 @@ class Game:
         if active_count >= 10:
             return False
 
-        self.players.append(Player(user_id, username, color, avatar_emoji, avatar_color, avatar_url))
+        new_player = Player(user_id, username, color, avatar_emoji, avatar_color, avatar_url)
+        new_player.money = self.settings["start_money"]
+        self.players.append(new_player)
         if len(self.players) <= 2:
             self._reset_turn_timer()
         self.status_message = f"{username} ist dem Spiel beigetreten!"
@@ -557,10 +648,11 @@ class Game:
         else:
             player.jail_turns += 1
             if player.jail_turns >= 3:
-                player.money -= 50
+                bail = self._cost(50)
+                self._collect_fee(player, bail)
                 player.in_jail = False
                 player.jail_turns = 0
-                self.status_message = f"{player.username} zahlt 50 € Kaution."
+                self.status_message = f"{player.username} zahlt {bail} € Kaution."
                 self._move_player(player, d1 + d2)
                 self.turn_phase = "action"
             else:
@@ -580,8 +672,8 @@ class Game:
             "passed_go": player.position < old_pos and steps > 0
         }
         if player.position < old_pos and steps > 0:
-            player.money += 200
-            self.status_message = f"{player.username} überquert Los und erhält 200 €!"
+            # Vorbeikommen (inkl. exaktem Landen auf Los nach Umrunden)
+            self._award_go(player, landed=(player.position == 0))
         self._handle_field(player)
 
     def _handle_field(self, player):
@@ -595,7 +687,7 @@ class Game:
             return
 
         if field.field_type == "tax":
-            amount = field.rent[0]
+            amount = self._cost(field.rent[0])
             self.pending_tax = {
                 "payer": player.username,
                 "amount": amount,
@@ -632,8 +724,9 @@ class Game:
 
         if field.field_type in ("property", "station", "utility"):
             if field.owner is None and field.price > 0:
-                self.status_message = f"{player.username} landet auf {field.name}. Kaufpreis: {field.price} €."
-                self.can_buy = player.money >= field.price
+                price = self._cost(field.price)
+                self.status_message = f"{player.username} landet auf {field.name}. Kaufpreis: {price} €."
+                self.can_buy = player.money >= price
                 self.last_event = {"type": "land_empty", "field": field.name, "price": field.price}
 
             elif field.owner and field.owner != player and not field.is_mortgaged:
@@ -642,9 +735,10 @@ class Game:
                     rent = (d1 + d2) * (10 if owned == 2 else 4)
                 else:
                     rent = field.get_rent(self.board, field.owner)
+                rent = self._cost(rent)
 
 
-                rent = min(rent, player.money + sum(f.price for f in player.properties))
+                rent = min(rent, player.money + sum(self._cost(f.price) for f in player.properties))
                 self.pending_rent = {
                     "payer": player.username,
                     "creditor": field.owner.username,
@@ -692,15 +786,17 @@ class Game:
             self.movement_this_turn = True
         self.status_message = f"Karte: {card['text']}"
         if action == "money":
-            player.money += value
             if value < 0:
-                self.free_parking_pot += abs(value)
+                fee = self._cost(abs(value))
+                self._collect_fee(player, fee)
                 self._check_bankruptcy(player)
+            else:
+                player.money += value
         elif action == "goto":
             old = player.position
             player.position = value
             if old > value:
-                player.money += 200
+                self._award_go(player, landed=True)
             self._handle_field(player)
         elif action == "jail":
             self._send_to_jail(player)
@@ -715,7 +811,7 @@ class Game:
             pos = player.position
             nxt = next((s for s in stations if s > pos), stations[0])
             if nxt < pos:
-                player.money += 200
+                player.money += self._salary()
             player.position = nxt
             self._handle_field(player)
         elif action == "property_tax":
@@ -723,11 +819,11 @@ class Game:
             total = 0
             for prop in player.properties:
                 if prop.houses == 5:
-                    cost = random.randint(75, 100)
+                    cost = self._cost(random.randint(75, 100))
                     breakdown.append({"name": prop.name, "houses": 0, "hotels": 1, "cost": cost})
                     total += cost
                 elif prop.houses > 0:
-                    cost_per_house = random.randint(50, 75)
+                    cost_per_house = self._cost(random.randint(50, 75))
                     cost = prop.houses * cost_per_house
                     breakdown.append({"name": prop.name, "houses": prop.houses, "hotels": 0, "cost": cost})
                     total += cost
@@ -744,8 +840,8 @@ class Game:
             self.status_message = f"{player.username} muss {total}€ Steuer für Gebäude zahlen."
             self._sys_chat(f"🏛️ Steuerprüfung: {player.username} zahlt {total}€ für Gebäude.")
         elif action == "repair":
-            house_cost = card.get("house_cost", 40)
-            hotel_cost = card.get("hotel_cost", 115)
+            house_cost = self._cost(card.get("house_cost", 40))
+            hotel_cost = self._cost(card.get("hotel_cost", 115))
             breakdown = []
             total = 0
             for prop in player.properties:
@@ -799,11 +895,11 @@ class Game:
         total = player.money
         for prop in player.properties:
             if not prop.is_mortgaged:
-                total += prop.price // 2
+                total += self._cost(prop.price) // 2
             if prop.houses == 5:
-                total += prop.house_cost
+                total += self._cost(prop.house_cost)
             else:
-                total += prop.houses * prop.house_cost
+                total += prop.houses * self._cost(prop.house_cost)
         return total
 
     def _check_bankruptcy(self, player: "Player"):
@@ -843,16 +939,17 @@ class Game:
     def buy_property(self) -> bool:
         player = self.players[self.current_player_index]
         field = self.board[player.position]
+        price = self._cost(field.price)
         if (field.field_type not in ("property", "station", "utility")
                 or field.owner is not None
-                or player.money < field.price
+                or player.money < price
                 or field.price == 0):
             return False
-        player.money -= field.price
+        player.money -= price
         field.owner = player
         player.properties.append(field)
         self.can_buy = False
-        self.status_message = f"{player.username} kauft {field.name} für {field.price} €."
+        self.status_message = f"{player.username} kauft {field.name} für {price} €."
         self._sys_chat(f"🏠 {player.username} kauft {field.name} für {field.price} €")
         return True
 
@@ -873,26 +970,27 @@ class Game:
             return {"success": False, "error": "Du besitzt nicht alle Straßen dieser Farbe."}
         if any(f.is_mortgaged for f in group):
             return {"success": False, "error": "Keine Straße darf verpfändet sein."}
+        build_cost = self._cost(field.house_cost)
         if build_type == "house":
             if field.houses >= 4:
                 return {"success": False, "error": "Maximal 4 Häuser möglich."}
             min_h = min(f.houses for f in group)
             if field.houses > min_h:
                 return {"success": False, "error": "Du musst gleichmäßig bauen."}
-            if player.money < field.house_cost:
+            if player.money < build_cost:
                 return {"success": False, "error": "Nicht genug Geld."}
-            player.money -= field.house_cost
+            player.money -= build_cost
             field.houses += 1
-            self.status_message = f"{player.username} baut Haus auf {field.name} ({field.house_cost} €)."
+            self.status_message = f"{player.username} baut Haus auf {field.name} ({build_cost} €)."
             self.last_event = {"type": "build", "field": field.name, "houses": field.houses}
         elif build_type == "hotel":
             if field.houses != 4:
                 return {"success": False, "error": "4 Häuser erforderlich."}
-            if player.money < field.house_cost:
+            if player.money < build_cost:
                 return {"success": False, "error": "Nicht genug Geld."}
-            player.money -= field.house_cost
+            player.money -= build_cost
             field.houses = 5
-            self.status_message = f"{player.username} baut Hotel auf {field.name} ({field.house_cost} €)."
+            self.status_message = f"{player.username} baut Hotel auf {field.name} ({build_cost} €)."
             self.last_event = {"type": "build", "field": field.name, "hotel": True}
         else:
             return {"success": False, "error": "Ungültige Bauaktion."}
@@ -1034,14 +1132,13 @@ class Game:
         self.pending_tax = None
 
         if payer.money >= amount:
-            payer.money -= amount
-            self.free_parking_pot += amount
+            self._collect_fee(payer, amount)
             self.status_message = f"{payer_username} hat {amount} € Steuer gezahlt."
             self._sys_chat(f"🏛️ {payer_username} zahlt {amount} € Steuer")
         else:
             total = self._total_asset_value(payer)
             if total < amount:
-                self.free_parking_pot += payer.money
+                self._collect_fee(payer, payer.money)
                 payer.money = 0
                 self.status_message = f"{payer_username} kann die Steuer nicht zahlen und ist bankrott!"
                 self._sys_chat(f"💀 {payer_username} kann {amount} € Steuer nicht decken (Vermögen: {total} €)")
@@ -1261,7 +1358,7 @@ class Game:
             return {"success": False, "error": "Bereits verpfändet."}
         if field.houses > 0:
             return {"success": False, "error": "Erst alle Häuser/Hotels verkaufen."}
-        mortgage_val = field.price // 2
+        mortgage_val = self._cost(field.price) // 2
         field.is_mortgaged = True
         player.money += mortgage_val
         self.status_message = f"{username} verpfändet {field.name} für {mortgage_val} €."
@@ -1281,7 +1378,7 @@ class Game:
             return {"success": False, "error": f"'{field.name}' ist in einem laufenden Handel gebunden."}
         if not field.is_mortgaged:
             return {"success": False, "error": "Keine Hypothek vorhanden."}
-        mortgage_val = field.price // 2
+        mortgage_val = self._cost(field.price) // 2
         repay = int(mortgage_val * 1.1)
         if player.money < repay:
             return {"success": False, "error": f"Nicht genug Geld. Rückzahlung: {repay} €"}
@@ -1317,13 +1414,13 @@ class Game:
             return {"success": False, "error": "Spieler nicht gefunden."}
         if not player.in_jail:
             return {"success": False, "error": "Du bist nicht im Gefängnis."}
-        if player.money < 50:
-            return {"success": False, "error": "Nicht genug Geld (50 € Kaution)."}
-        player.money -= 50
-        self.free_parking_pot += 50
+        bail = self._cost(50)
+        if player.money < bail:
+            return {"success": False, "error": f"Nicht genug Geld ({bail} € Kaution)."}
+        self._collect_fee(player, bail)
         player.in_jail = False
         player.jail_turns = 0
-        self.status_message = f"{username} zahlt 50 € Kaution und kommt frei!"
+        self.status_message = f"{username} zahlt {bail} € Kaution und kommt frei!"
         self.last_event = {"type": "jail_buyout"}
         self._sys_chat(f"🔓 {username} hat sich für 50 € aus dem Gefängnis freigekauft")
         return {"success": True}
@@ -1389,7 +1486,7 @@ class Game:
             return None
         if self.last_event and self.last_event.get("type") in ("winner", "draw"):
             return None
-        return self.turn_started_at + TURN_TIMEOUT_SECONDS
+        return self.turn_started_at + self.settings["turn_timeout"]
 
     def end_turn(self):
         self.pending_casino = None    # ← NEU: Spieler hat Casino übersprungen
@@ -1407,9 +1504,15 @@ class Game:
         deadline = self._turn_deadline()
         if deadline is None or time.time() < deadline:
             return False
-        self.end_turn()
         current = self.players[self.current_player_index] if self.players else None
-        if current:
+        self.end_turn()
+        penalty = self.settings["timeout_penalty"]
+        if current and penalty > 0 and not current.is_bankrupt:
+            self._collect_fee(current, penalty)
+            self._sys_chat(f"⏰ {current.username} hat zu lange gebraucht und zahlt {penalty} € Strafe.")
+            self.status_message = f"Zeit abgelaufen - {current.username} zahlt {penalty} € Strafe. Nächster Spieler ist dran."
+            self._check_bankruptcy(current)
+        elif current:
             self.status_message = f"Zeit abgelaufen - {current.username} ist dran."
         return True
 
@@ -1434,34 +1537,34 @@ class Game:
                 can_house = (field.houses < 4 and not field.is_mortgaged
                              and all(f.owner == player for f in group)
                              and all(not f.is_mortgaged for f in group)
-                             and field.houses == min_h and player.money >= field.house_cost)
+                             and field.houses == min_h and player.money >= self._cost(field.house_cost))
                 can_hotel = (field.houses == 4 and not field.is_mortgaged
                              and all(f.owner == player for f in group)
                              and all(not f.is_mortgaged for f in group)
-                             and player.money >= field.house_cost)
+                             and player.money >= self._cost(field.house_cost))
                 max_h = max(f.houses for f in group)
                 can_sell_house = (0 < field.houses < 5 and field.houses == max_h)
                 can_sell_hotel = (field.houses == 5)
-                mortgage_val = field.price // 2
+                mortgage_val = self._cost(field.price) // 2
                 repay_val = int(mortgage_val * 1.1)
                 can_mortgage = (not field.is_mortgaged and field.houses == 0)
                 can_unmortgage = (field.is_mortgaged and player.money >= repay_val)
                 props_info.append({
                     "name": field.name, "houses": field.houses, "color_group": field.color_group,
-                    "is_mortgaged": field.is_mortgaged, "house_cost": field.house_cost,
-                    "price": field.price,
+                    "is_mortgaged": field.is_mortgaged, "house_cost": self._cost(field.house_cost),
+                    "price": self._cost(field.price),
                     "mortgage_value": mortgage_val, "repay_value": repay_val,
                     "can_build_house": can_house, "can_build_hotel": can_hotel,
                     "can_sell_house": can_sell_house, "can_sell_hotel": can_sell_hotel,
                     "can_mortgage": can_mortgage, "can_unmortgage": can_unmortgage
                 })
             else:
-                mortgage_val2 = field.price // 2
+                mortgage_val2 = self._cost(field.price) // 2
                 repay_val2 = int(mortgage_val2 * 1.1)
                 props_info.append({
                     "name": field.name, "houses": 0, "color_group": field.color_group,
                     "is_mortgaged": field.is_mortgaged, "house_cost": 0,
-                    "price": field.price,
+                    "price": self._cost(field.price),
                     "mortgage_value": mortgage_val2, "repay_value": repay_val2,
                     "can_build_house": False, "can_build_hotel": False,
                     "can_sell_house": False, "can_sell_hotel": False,
@@ -1502,6 +1605,7 @@ class Game:
             "turn_started_at": self.turn_started_at,
             "movement_this_turn": self.movement_this_turn,
             "active_casino": self.active_casino,
+            "settings": dict(self.settings),
             "players": [{
                 "user_id": p.user_id,
                 "username": p.username,
@@ -1594,6 +1698,7 @@ class Game:
         game.movement_this_turn = bool(data.get("movement_this_turn", False))
         game.active_casino = data.get("active_casino")
         game.pending_casino = data.get("pending_casino")   # ← NEU
+        game.settings = normalize_settings(data.get("settings") or {})
         if game.movement_this_turn:
             game.turn_started_at = float(data.get("turn_started_at") or time.time())
         else:
@@ -1627,6 +1732,7 @@ class Game:
             "chat_messages": self.chat_messages[-80:],
             "active_casino": self.active_casino,
             "pending_casino": self.pending_casino,   # ← NEU
+            "settings": dict(self.settings),
         }
 
 
