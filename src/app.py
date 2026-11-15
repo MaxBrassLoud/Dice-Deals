@@ -12,7 +12,7 @@ from functools import wraps
 from flask import Flask, request, jsonify, render_template, redirect, session, g, make_response
 from werkzeug.security import check_password_hash, generate_password_hash
 from database import (create_database, create_user, get_user_by_username,
-                      get_user_by_id, update_user_avatar, update_last_seen,
+                      get_user_by_id, set_supabase_identity, update_user_avatar, update_last_seen,
                       search_users, send_friend_request, respond_friend_request,
                       remove_friend, get_friends, create_friend_invite,
                       get_friend_invites, dismiss_friend_invite,
@@ -24,6 +24,7 @@ from database import (create_database, create_user, get_user_by_username,
                       update_user_room, clear_room_code_for_game,
                       update_user_display_name, is_display_name_available)
 from ID_Creator import create_user_id
+import supabase_client
 from game_logic import Game, active_games, normalize_settings
 from sse_manager import push as sse_push, subscribe as sse_subscribe, unsubscribe as sse_unsubscribe
 from dotenv import load_dotenv
@@ -57,6 +58,27 @@ def login_required(f):
             return redirect("/login")
         return f(*args, **kwargs)
     return decorated
+
+
+def auth_provider_of(user):
+    """Liefert 'supabase' | 'discord' | 'legacy' aus der User-Zeile."""
+    return user[16] if len(user) > 16 and user[16] else "legacy"
+
+
+def _migrate_legacy_to_supabase(user, password):
+    """Bestands-Konten bekommen bei der ersten Anmeldung einen Supabase-Auth-User."""
+    if not supabase_client.is_configured():
+        return
+    email = user[3]
+    if not email:
+        return
+    try:
+        auth_uid = supabase_client.create_auth_user(email, password, user[1])
+        set_supabase_identity(user[0], auth_uid)
+    except Exception:
+        # Konto bleibt nutzbar; Migration schlaegt fehl, falls die E-Mail in
+        # Supabase schon existiert, und wird beim naechsten Passwort-Update wiederholt.
+        pass
 
 
 def generate_room_code() -> str:
@@ -403,9 +425,24 @@ def register():
     if len(password) < 6:
         return jsonify({"error": "Passwort muss mindestens 6 Zeichen lang sein"}), 400
     user_id = create_user_id()
-    success = create_user(user_id, username, hash_password(password), email)
-    if not success:
-        return jsonify({"error": "Benutzername oder E-Mail bereits vergeben"}), 409
+    if supabase_client.is_configured():
+        try:
+            auth_uid = supabase_client.create_auth_user(email, password, username)
+        except supabase_client.AuthError as e:
+            msg = str(e).lower()
+            if any(k in msg for k in ("already", "exists", "registered", "duplicate")):
+                return jsonify({"error": "Benutzername oder E-Mail bereits vergeben"}), 409
+            if "password" in msg:
+                return jsonify({"error": "Passwort ist zu schwach"}), 400
+            return jsonify({"error": "Registrierung fehlgeschlagen"}), 400
+        success = create_user(user_id, username, None, email, auth_provider="supabase", auth_uid=auth_uid)
+        if not success:
+            supabase_client.delete_auth_user(auth_uid)
+            return jsonify({"error": "Benutzername oder E-Mail bereits vergeben"}), 409
+    else:
+        success = create_user(user_id, username, hash_password(password), email)
+        if not success:
+            return jsonify({"error": "Benutzername oder E-Mail bereits vergeben"}), 409
     # Ein neu erstelltes Konto ist sofort nutzbar; kein zweiter Login-Request nötig.
     user = merge_guest_profile_into_user(user_id) or get_user_by_id(user_id)
     set_session_user(user)
@@ -423,10 +460,20 @@ def login():
     if not username or not password:
         return jsonify({"error": "Benutzername und Passwort erforderlich"}), 400
     user = get_user_by_username(username)
-    if not user or not password_matches(user[2], password):
+    if not user:
         return jsonify({"error": "Ungueltige Anmeldedaten"}), 401
-    if not user[2].startswith(("scrypt:", "pbkdf2:")):
-        update_user_password(user[0], hash_password(password))
+    provider = auth_provider_of(user)
+    if provider == "discord":
+        return jsonify({"error": "Bitte mit Discord anmelden"}), 401
+    if provider == "supabase":
+        if not supabase_client.verify_password(user[3], password):
+            return jsonify({"error": "Ungueltige Anmeldedaten"}), 401
+    else:
+        if not password_matches(user[2] or "", password):
+            return jsonify({"error": "Ungueltige Anmeldedaten"}), 401
+        if user[2] and not user[2].startswith(("scrypt:", "pbkdf2:")):
+            update_user_password(user[0], hash_password(password))
+        _migrate_legacy_to_supabase(user, password)
     merged_user = merge_guest_profile_into_user(user[0])
     if merged_user:
         user = merged_user
@@ -483,7 +530,8 @@ def discord_callback():
     user = get_user_by_username(username)
     if not user:
         user_id = create_user_id()
-        create_user(user_id, username, "DISCORD_LOGIN", email, third_party=1, provider=1, ext_user_id=discord_id)
+        create_user(user_id, username, "DISCORD_LOGIN", email, third_party=1, provider=1, ext_user_id=discord_id,
+                    auth_provider="discord")
         update_user_discord_info(user_id, discord_id, discord_avatar_url, username)
     else:
         user_id = user[0]
@@ -987,7 +1035,8 @@ def user_profile():
         "display_name": user[15] if len(user) > 15 else None,
         "discord_username": user[12] if len(user) > 12 else None,
         "discord_avatar": user[11] if len(user) > 11 else None,
-        "has_password": user[2] != "DISCORD_LOGIN",
+        "has_password": (auth_provider_of(user) == "supabase"
+                         or (auth_provider_of(user) == "legacy" and bool(user[2]) and user[2] != "DISCORD_LOGIN")),
     })
 
 
@@ -1039,6 +1088,12 @@ def update_email():
     email = (request.get_json(silent=True) or {}).get("email", "").strip().lower()
     if not email or "@" not in email or len(email) > 254:
         return jsonify({"error": "Bitte gib eine gueltige E-Mail-Adresse ein"}), 400
+    user = get_user_by_id(session["user_id"])
+    if user and auth_provider_of(user) == "supabase" and user[17]:
+        try:
+            supabase_client.update_email(user[17], email)
+        except supabase_client.AuthError:
+            return jsonify({"error": "Diese E-Mail-Adresse wird bereits verwendet"}), 409
     if not update_user_email(session["user_id"], email):
         return jsonify({"error": "Diese E-Mail-Adresse wird bereits verwendet"}), 409
     return jsonify({"message": "E-Mail-Adresse aktualisiert", "email": email})
@@ -1055,9 +1110,23 @@ def update_password():
     if len(new_password) < 8:
         return jsonify({"error": "Das neue Passwort muss mindestens 8 Zeichen lang sein"}), 400
     user = get_user_by_id(session["user_id"])
-    if not user or not password_matches(user[2], current_password):
+    if not user:
+        return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    provider = auth_provider_of(user)
+    if provider == "discord":
+        return jsonify({"error": "Discord-Nutzer haben kein Passwort"}), 403
+    if provider == "supabase" and user[17]:
+        if not supabase_client.verify_password(user[3], current_password):
+            return jsonify({"error": "Das aktuelle Passwort ist nicht korrekt"}), 403
+        try:
+            supabase_client.update_password(user[17], new_password)
+        except supabase_client.AuthError:
+            return jsonify({"error": "Passwort konnte nicht geaendert werden"}), 500
+        return jsonify({"message": "Passwort aktualisiert"})
+    if not password_matches(user[2] or "", current_password):
         return jsonify({"error": "Das aktuelle Passwort ist nicht korrekt"}), 403
     update_user_password(session["user_id"], hash_password(new_password))
+    _migrate_legacy_to_supabase(user, new_password)
     return jsonify({"message": "Passwort aktualisiert"})
 
 
