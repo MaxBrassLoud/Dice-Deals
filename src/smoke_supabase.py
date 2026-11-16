@@ -1,9 +1,10 @@
-"""Live-Smoke-Test gegen die echte Supabase-Instanz. Liest/veraendert nur
-temporaere Daten (Spielstand, Token, room_code) und legt einen kurzlebigen
-Auth-User an, der am Ende wieder geloescht wird."""
+"""Live-Smoke-Test gegen die echte Supabase-Instanz. Legt einen kurzlebigen
+Auth-User + App-User an, prueft DB- und Auth-Roundtrips und raeumt alles
+wieder auf. Läuft auch auf einer leeren Datenbank."""
 
 import os
 import sys
+import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -14,55 +15,53 @@ load_dotenv()
 import database as db
 import supabase_client as sa
 
-# --- read-only Auth check ---
-users = sa.get_client().auth.admin.list_users()
-print("supabase auth users:", len(users))
+suffix = uuid.uuid4().hex[:8]
+username = f"smoke_{suffix}"
+email = f"{username}@example.com"
+uid = f"uid-smoke-{suffix}"
+user_id = f"SMK-{suffix[:4]}-{suffix[4:8]}-{suffix[8:12]}"
 
-# --- database.py smoke against live Supabase ---
-mika = db.get_user_by_username("Mika")
-print("Mika loaded:", mika[1], "provider=", mika[16])
-print("search ILIKE mik ->", [u["username"] for u in db.search_users("mik")])
-print("name Mika available?", db.is_display_name_available("mika"))
-print("name MikaZZ available?", db.is_display_name_available("MikaZZ"))
+# --- Supabase Auth roundtrip ---
+uid = sa.create_auth_user(email, "Smoketest-123", username)
+print("auth create+verify:", sa.verify_password(email, "Smoketest-123"))
+sa.update_password(uid, "Smoketest-456")
+print("auth verify new pw:", sa.verify_password(email, "Smoketest-456"))
+sa.update_email(uid, f"{username}-new@example.com")
 
+# --- App-User in der DB ---
+db.create_user(user_id, username, None, email, third_party=0, provider=0,
+               ext_user_id=None, auth_provider="supabase", auth_uid=uid)
+u = db.get_user_by_username(username)
+print("user loaded:", u[1], "provider=", u[16], "uid=", u[17])
+print("search ILIKE smoke ->", [x["username"] for x in db.search_users("smoke")])
+print("name available?", db.is_display_name_available(username + "X"))
+
+# --- Game roundtrip ---
 db.save_game("SMOKE1", '{"t":1}')
 print("game state:", db.get_game_state("SMOKE1"))
 db.touch_game("SMOKE1")
 db.delete_game("SMOKE1")
-print("game deleted, state now:", db.get_game_state("SMOKE1"))
+print("game deleted:", db.get_game_state("SMOKE1"))
 
-tok = db.create_auth_token(mika[0])
+# --- Token roundtrip ---
+tok = db.create_auth_token(user_id)
 u2 = db.get_user_by_token(tok)
 print("token roundtrip user:", u2[1] if u2 else None)
 db.delete_auth_token(tok)
-print("token deleted, lookup:", db.get_user_by_token(tok))
+print("token deleted:", db.get_user_by_token(tok))
 
-db.update_user_room(mika[0], "SMOKE2")
-print("room set:", db.get_user_by_id(mika[0])[13])
-db.update_user_room(mika[0], None)
-print("room cleared:", db.get_user_by_id(mika[0])[13])
+# --- Room roundtrip ---
+db.update_user_room(user_id, "SMKRM")
+print("room set:", db.get_user_by_id(user_id)[13])
+db.update_user_room(user_id, None)
+print("room cleared:", db.get_user_by_id(user_id)[13])
 
-# --- Supabase Auth round trip ---
-import time
-
-email = f"smoke-{int(time.time())}@example.invalid"
-uid = sa.create_auth_user(email, "TempPass123!", "smoketest")
-print("auth user created:", uid)
-ok = sa.verify_password(email, "TempPass123!")
-print("verify_password ok:", ok)
-sa.update_password(uid, "TempPass456!")
-print("password updated, verify new:", sa.verify_password(email, "TempPass456!"))
-sa.update_email(uid, f"smoke-moved-{int(time.time())}@example.invalid")
+# --- Cleanup ---
 sa.delete_auth_user(uid)
-print("auth user deleted; verify after delete:", sa.verify_password(email, "TempPass456!"))
-
-# Aufraeumen: keine Restzeilen in users
 with db.get_connection() as conn:
-    with conn.cursor() as c:
-        c.execute("SELECT COUNT(*) FROM users WHERE username = 'smoketest'")
-        print("leftover smoketest rows:", c.fetchone()[0])
-        c.execute("SELECT COUNT(*) FROM games WHERE room_code = 'SMOKE1'")
-        print("leftover smoke games:", c.fetchone()[0])
-        c.execute("SELECT COUNT(*) FROM auth_tokens WHERE user_id = %s", (mika[0],))
-        print("leftover tokens for Mika (should be 0):", c.fetchone()[0])
-print("SMOKE OK")
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM users WHERE id=%s", (user_id,))
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM users")
+        print("cleanup done; remaining users:", cur.fetchone()[0])

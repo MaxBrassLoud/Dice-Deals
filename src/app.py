@@ -11,8 +11,9 @@ import requests
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, redirect, session, g, make_response
 from werkzeug.security import check_password_hash, generate_password_hash
-from database import (create_database, create_user, get_user_by_username,
-                      get_user_by_id, set_supabase_identity, update_user_avatar, update_last_seen,
+from database import (create_database, create_user, get_user_by_username, get_user_by_email,
+                      get_user_by_id, set_supabase_identity, link_discord_identity,
+                      update_user_avatar, update_last_seen,
                       search_users, send_friend_request, respond_friend_request,
                       remove_friend, get_friends, create_friend_invite,
                       get_friend_invites, dismiss_friend_invite,
@@ -484,68 +485,77 @@ def login():
     return response, 200
 
 
+def _fill_discord_avatar_url(user_row, discord_avatar):
+    """Füllt avatar_url (Index 14) aus dem Discord-Profilbild, wenn es noch leer ist."""
+    if not discord_avatar or not user_row or len(user_row) <= 14 or user_row[14]:
+        return user_row
+    update_user_avatar(user_row[0], user_row[7] or "🎲", user_row[8] or "#3b82f6", discord_avatar)
+    return get_user_by_id(user_row[0])
+
+
 @app.route('/login/discord')
 def discord_login():
-    url = (
-        "https://discord.com/api/oauth2/authorize"
-        f"?client_id={DISCORD_CLIENT_ID}"
-        "&response_type=code"
-        f"&redirect_uri={DISCORD_REDIRECT_URI}"
-        "&scope=identify email"
-    )
+    redirect_uri = request.url_root.rstrip('/') + '/api/v1/discord/callback'
+    session["discord_oauth_intent"] = "login"
+    try:
+        url, verifier = supabase_client.discord_oauth_redirect(redirect_uri=redirect_uri)
+    except supabase_client.AuthError:
+        return redirect("/login?error=oauth_failed")
+    session["discord_oauth_verifier"] = verifier
+    session["discord_oauth_redirect_uri"] = redirect_uri
     return redirect(url)
 
 
 @app.route('/api/v1/discord/callback')
 def discord_callback():
+    error = request.args.get("error")
     code = request.args.get("code")
-    state = request.args.get("state")
-    if not code:
+    if error or not code:
+        app.logger.error("Discord OAuth callback without code: error=%r args=%s",
+                         error, dict(request.args))
         return redirect("/login?error=oauth_failed")
-    token_res = requests.post(
-        "https://discord.com/api/oauth2/token",
-        data={"client_id": DISCORD_CLIENT_ID, "client_secret": DISCORD_CLIENT_SECRET,
-              "grant_type": "authorization_code", "code": code, "redirect_uri": DISCORD_REDIRECT_URI},
-        headers={"Content-Type": "application/x-www-form-urlencoded"}, timeout=10)
-    access_token = token_res.json().get("access_token")
-    if not access_token:
+    verifier = session.pop("discord_oauth_verifier", None)
+    redirect_uri = session.pop("discord_oauth_redirect_uri", None)
+    intent = session.pop("discord_oauth_intent", None)
+    if not verifier or not redirect_uri:
+        app.logger.error("Discord OAuth callback lost PKCE session (verifier=%s redirect_uri=%s)",
+                         bool(verifier), bool(redirect_uri))
         return redirect("/login?error=oauth_failed")
-    user_res = requests.get("https://discord.com/api/users/@me",
-                            headers={"Authorization": f"Bearer {access_token}"}, timeout=10)
-    user_data = user_res.json()
-    discord_id = user_data.get("id")
-    username = user_data.get("username")
-    email = user_data.get("email")
-    avatar_hash = user_data.get("avatar")
-    discord_avatar_url = None
-    if avatar_hash:
-        ext = "gif" if avatar_hash.startswith("a_") else "png"
-        discord_avatar_url = f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar_hash}.{ext}?size=128"
+    try:
+        auth_uid, email, username, discord_id, discord_avatar = supabase_client.discord_oauth_callback(
+            code, redirect_uri=redirect_uri, code_verifier=verifier)
+    except supabase_client.AuthError as e:
+        app.logger.error("Discord OAuth exchange failed: %s", e)
+        return redirect("/login?error=oauth_failed")
+    if not auth_uid:
+        return redirect("/login?error=oauth_failed")
 
-    if state == "link_account" and "user_id" in session:
-        update_user_discord_info(session["user_id"], discord_id, discord_avatar_url, username)
+    if intent == "link" and "user_id" in session and not session.get("is_guest"):
+        link_discord_identity(session["user_id"], auth_uid, discord_id, discord_avatar, username)
+        if discord_avatar and not session.get("avatar_url"):
+            update_user_avatar(session["user_id"], session.get("avatar_emoji", "🎲"),
+                               session.get("avatar_color", "#3b82f6"), discord_avatar)
+            session["avatar_url"] = discord_avatar
         session["discord_linked"] = True
         return redirect("/?discord_linked=1")
 
-    user = get_user_by_username(username)
+    user = get_user_by_email(email) if email else None
+    if not user and username:
+        user = get_user_by_username(username)
     if not user:
         user_id = create_user_id()
-        create_user(user_id, username, "DISCORD_LOGIN", email, third_party=1, provider=1, ext_user_id=discord_id,
-                    auth_provider="discord")
-        update_user_discord_info(user_id, discord_id, discord_avatar_url, username)
+        create_user(user_id, username or "discord-user", "DISCORD_LOGIN", email or "",
+                    third_party=1, provider=1, ext_user_id=None, auth_provider="discord", auth_uid=auth_uid)
+        refreshed = get_user_by_id(user_id)
     else:
-        user_id = user[0]
-        update_user_discord_info(user_id, discord_id, discord_avatar_url, username)
-    refreshed = get_user_by_id(user_id)
-    merged_user = merge_guest_profile_into_user(user_id)
+        link_discord_identity(user[0], auth_uid, discord_id, discord_avatar, username)
+        refreshed = get_user_by_id(user[0])
+    refreshed = _fill_discord_avatar_url(refreshed, discord_avatar)
+    merged_user = merge_guest_profile_into_user(refreshed[0])
     if merged_user:
         refreshed = merged_user
-    if refreshed:
-        set_session_user(refreshed)
-    else:
-        session["user_id"] = user_id
-        session["username"] = username
-    token = create_auth_token(user_id)
+    set_session_user(refreshed)
+    token = create_auth_token(refreshed[0])
     response = redirect("/")
     set_remember_cookie(response, token)
     return response
@@ -554,14 +564,14 @@ def discord_callback():
 @app.route('/login/discord/link')
 @login_required
 def discord_link():
-    url = (
-        "https://discord.com/api/oauth2/authorize"
-        f"?client_id={DISCORD_CLIENT_ID}"
-        "&response_type=code"
-        f"&redirect_uri={DISCORD_REDIRECT_URI}"
-        "&scope=identify"
-        "&state=link_account"
-    )
+    redirect_uri = request.url_root.rstrip('/') + '/api/v1/discord/callback'
+    session["discord_oauth_intent"] = "link"
+    try:
+        url, verifier = supabase_client.discord_oauth_redirect(redirect_uri=redirect_uri)
+    except supabase_client.AuthError:
+        return redirect("/login?error=oauth_failed")
+    session["discord_oauth_verifier"] = verifier
+    session["discord_oauth_redirect_uri"] = redirect_uri
     return redirect(url)
 
 

@@ -135,6 +135,28 @@ def get_user_by_username(username):
             return c.fetchone()
 
 
+def get_user_by_email(email):
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute(f"SELECT {USER_COLUMNS} FROM users WHERE LOWER(email) = LOWER(%s)", (email,))
+            return c.fetchone()
+
+
+def link_discord_identity(user_id, auth_uid, discord_id, discord_avatar, discord_username):
+    """Verknüpft ein Bestandskonto mit einer Discord-Identitaet, ohne das
+    vorhandene auth_provider-Feld zu ueberschreiben. auth_uid wird nur gesetzt,
+    wenn es noch leer ist (mehrere Identitaeten bleiben moeglich).
+    """
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute(
+                "UPDATE users SET discord_id = %s, discord_avatar = %s, discord_username = %s, "
+                "auth_uid = COALESCE(auth_uid, %s) WHERE id = %s",
+                (discord_id, discord_avatar, discord_username, auth_uid, user_id),
+            )
+        conn.commit()
+
+
 def get_user_by_id(user_id):
     with get_connection() as conn:
         with conn.cursor() as c:
