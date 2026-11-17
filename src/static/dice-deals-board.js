@@ -238,7 +238,7 @@ function renderBoard(s) {
                 here.forEach(p => {
                     const t = document.createElement("div");
                     t.className = "token" + (p.username === s.current_player ? " highlight" : "") + (p.username === ME ? " me" : "");
-                    t.style.background = `linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc)`;
+                    t.style.background = avatarBgStyle(PCOLORS[p.color]||p.avatar_color||'#888', p.avatar_style);
                     t.title = p.username;
                     t.innerHTML = avatarContent(p);
                     t.style.fontSize = 'clamp(4px,0.8cqi,10px)';
@@ -260,7 +260,7 @@ function renderBoard(s) {
     center.className = "field center-area";
     center.style.gridColumn = "2/11";
     center.style.gridRow    = "2/11";
-    const pips = s.players.map(p => `<div class="center-pip"><div class="cpip-dot" style="background:linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc);font-size:10px;display:flex;align-items:center;justify-content:center;">${avatarContent(p)}</div>${p.username.substring(0,8)}</div>`).join("");
+    const pips = s.players.map(p => `<div class="center-pip"><div class="cpip-dot" style="background:${avatarBgStyle(PCOLORS[p.color]||p.avatar_color||'#888', p.avatar_style)};font-size:10px;display:flex;align-items:center;justify-content:center;">${avatarContent(p)}</div>${p.username.substring(0,8)}</div>`).join("");
     const pot = s.free_parking_pot || 0;
     const potHTML = pot > 0 ? `<div class="parking-pot">🅿️ <span>${pot.toLocaleString("de-DE")} €</span></div>` : `<div class="parking-pot empty">🅿️ Topf leer</div>`;
     const st = s.settings || {};

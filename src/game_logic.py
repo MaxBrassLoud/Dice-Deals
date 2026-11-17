@@ -113,13 +113,14 @@ COMMUNITY_CARDS = [
 
 
 class Player:
-    def __init__(self, user_id: str, username: str, color: str, avatar_emoji: str = "🎲", avatar_color: str = "#3b82f6", avatar_url: str = ""):
+    def __init__(self, user_id: str, username: str, color: str, avatar_emoji: str = "🎲", avatar_color: str = "#3b82f6", avatar_url: str = "", avatar_style: str = "diagonal"):
         self.user_id = user_id
         self.username = username
         self.color = color
         self.avatar_emoji = avatar_emoji
         self.avatar_color = avatar_color
         self.avatar_url = avatar_url or ""
+        self.avatar_style = avatar_style or "diagonal"
         self.money = 1500
         self.position = 0
         self.properties: List["Field"] = []
@@ -137,6 +138,7 @@ class Player:
             "avatar_emoji": self.avatar_emoji,
             "avatar_color": self.avatar_color,
             "avatar_url": self.avatar_url,
+            "avatar_style": self.avatar_style,
             "money": self.money,
             "position": self.position,
             "properties": [p.name for p in self.properties],
@@ -562,7 +564,7 @@ class Game:
         self.active_casino = None
         return {"success": True}
 
-    def add_player(self, user_id, username, color, avatar_emoji="🎲", avatar_color="#3b82f6", avatar_url="") -> bool:
+    def add_player(self, user_id, username, color, avatar_emoji="🎲", avatar_color="#3b82f6", avatar_url="", avatar_style="diagonal") -> bool:
         existing = next((p for p in self.players if p.user_id == user_id), None)
         if existing and existing.is_disconnected:
             existing.is_disconnected = False
@@ -571,6 +573,7 @@ class Game:
             existing.avatar_emoji = avatar_emoji
             existing.avatar_color = avatar_color
             existing.avatar_url = avatar_url or ""
+            existing.avatar_style = avatar_style or "diagonal"
             self.status_message = f"{username} ist zurückgekehrt!"
             self._sys_chat(f"{username} ist dem Spiel wieder beigetreten! 🎉")
             return True
@@ -582,7 +585,7 @@ class Game:
         if active_count >= 10:
             return False
 
-        new_player = Player(user_id, username, color, avatar_emoji, avatar_color, avatar_url)
+        new_player = Player(user_id, username, color, avatar_emoji, avatar_color, avatar_url, avatar_style)
         new_player.money = self.settings["start_money"]
         self.players.append(new_player)
         if len(self.players) <= 2:
@@ -1613,6 +1616,7 @@ class Game:
                 "avatar_emoji": p.avatar_emoji,
                 "avatar_color": p.avatar_color,
                 "avatar_url": p.avatar_url,
+                "avatar_style": p.avatar_style,
                 "money": p.money,
                 "position": p.position,
                 "in_jail": p.in_jail,
@@ -1646,6 +1650,7 @@ class Game:
                 pd.get("avatar_emoji", "🎲"),
                 pd.get("avatar_color", "#3b82f6"),
                 pd.get("avatar_url", ""),
+                pd.get("avatar_style", "diagonal"),
             )
             p.money = int(pd.get("money", 1500) or 0)
             p.position = int(pd.get("position", 0) or 0)

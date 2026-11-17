@@ -13,13 +13,17 @@ from flask import Flask, request, jsonify, render_template, redirect, session, g
 from werkzeug.security import check_password_hash, generate_password_hash
 from database import (create_database, create_user, get_user_by_username, get_user_by_email,
                       get_user_by_id, set_supabase_identity, link_discord_identity,
-                      update_user_avatar, update_last_seen,
+                      link_oauth_identity, update_user_avatar, update_last_seen,
                       search_users, send_friend_request, respond_friend_request,
                       remove_friend, get_friends, create_friend_invite,
                       get_friend_invites, dismiss_friend_invite,
                       update_user_discord_info,
                       create_auth_token, get_user_by_token, delete_auth_token,
                       update_user_password, update_user_email,
+                      update_user_bio_status, update_user_privacy,
+                      get_linked_accounts, remove_linked_account, clear_discord_identity,
+                      get_sessions, delete_other_sessions, delete_user,
+                      AVATAR_STYLES,
                       save_game, load_games, get_game_state, touch_game,
                       delete_game, get_stale_game_codes,
                       update_user_room, clear_room_code_for_game,
@@ -40,6 +44,26 @@ DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 
 create_database()
+
+
+def _avatar_bg_style(color, style):
+    """CSS-Hintergrund für einen Avatar — muss avatarBgStyle() in dice-deals-state.js spiegeln."""
+    c = color or "#3b82f6"
+    if style == "horizontal":
+        return f"linear-gradient(90deg, {c}, {c}dd)"
+    if style == "vertical":
+        return f"linear-gradient(180deg, {c}, {c}dd)"
+    if style == "radial":
+        return f"radial-gradient(circle at 30% 30%, {c}f2, {c})"
+    if style == "solid":
+        return c
+    return f"linear-gradient(135deg, {c}, {c}dd)"
+
+
+@app.context_processor
+def _inject_avatar_bg_style():
+    return dict(avatar_bg_style=_avatar_bg_style)
+
 
 def hash_password(pw: str) -> str:
     return generate_password_hash(pw)
@@ -253,6 +277,8 @@ def set_session_user(user):
     session["avatar_emoji"] = user[7] if len(user) > 7 and user[7] else "\U0001F3B2"
     session["avatar_color"] = user[8] if len(user) > 8 and user[8] else "#3b82f6"
     session["avatar_url"] = user[14] if len(user) > 14 and user[14] else None
+    session["avatar_style"] = user[18] if len(user) > 18 and user[18] else "diagonal"
+    session["status_text"] = user[20] if len(user) > 20 and user[20] else None
     session["is_guest"] = False
     for key in ("profile_customized", "guest_token", "guest_id"):
         session.pop(key, None)
@@ -370,6 +396,8 @@ def home():
                            avatar_emoji=session.get("avatar_emoji", "🎲"),
                            avatar_color=session.get("avatar_color", "#3b82f6"),
                            avatar_url=session.get("avatar_url"),
+                           avatar_style=session.get("avatar_style", "diagonal"),
+                           status_text=session.get("status_text"),
                            is_guest=session.get("is_guest", False),
                            profile_customized=session.get("profile_customized", False))
 
@@ -410,6 +438,18 @@ def dice_deals():
 @app.route('/activity')
 def discord_activity():
     return render_template("activity.html", discord_client_id=DISCORD_CLIENT_ID)
+
+
+@app.route('/account')
+def account_page():
+    # Gäste sehen nur einen Call-to-Action statt des Kontobereichs.
+    is_guest = session.get("is_guest", True)
+    return render_template("account.html", is_guest=is_guest,
+                           username=session.get("username", ""),
+                           avatar_emoji=session.get("avatar_emoji", "🎲"),
+                           avatar_color=session.get("avatar_color", "#3b82f6"),
+                           avatar_url=session.get("avatar_url"),
+                           avatar_style=session.get("avatar_style", "diagonal"))
 
 
 @app.route('/api/v1/register', methods=['POST'])
@@ -493,64 +533,78 @@ def _fill_discord_avatar_url(user_row, discord_avatar):
     return get_user_by_id(user_row[0])
 
 
-@app.route('/login/discord')
-def discord_login():
-    redirect_uri = request.url_root.rstrip('/') + '/api/v1/discord/callback'
-    session["discord_oauth_intent"] = "login"
+def _start_oauth(provider, intent):
+    """Startet den Supabase-OAuth-Flow fuer einen Provider (login oder link)."""
+    redirect_uri = request.url_root.rstrip('/') + f'/api/v1/{provider}/callback'
+    session[f"{provider}_oauth_intent"] = intent
     try:
-        url, verifier = supabase_client.discord_oauth_redirect(redirect_uri=redirect_uri)
+        url, verifier = supabase_client.oauth_redirect(provider, redirect_uri=redirect_uri)
     except supabase_client.AuthError:
         return redirect("/login?error=oauth_failed")
-    session["discord_oauth_verifier"] = verifier
-    session["discord_oauth_redirect_uri"] = redirect_uri
+    session[f"{provider}_oauth_verifier"] = verifier
+    session[f"{provider}_oauth_redirect_uri"] = redirect_uri
     return redirect(url)
 
 
-@app.route('/api/v1/discord/callback')
-def discord_callback():
+def _apply_oauth_identity(user_id, provider, auth_uid, ext_id, avatar, username):
+    if provider == "discord":
+        link_discord_identity(user_id, auth_uid, ext_id, avatar, username)
+    else:
+        link_oauth_identity(user_id, provider, auth_uid, ext_id, username, avatar)
+
+
+def _link_oauth_account(provider, auth_uid, ext_id, avatar, username):
+    """Link-Intent: bestehendes Konto mit dem Provider verknüpfen."""
+    _apply_oauth_identity(session["user_id"], provider, auth_uid, ext_id, avatar, username)
+    if avatar and not session.get("avatar_url"):
+        update_user_avatar(session["user_id"], session.get("avatar_emoji", "🎲"),
+                           session.get("avatar_color", "#3b82f6"), avatar,
+                           session.get("avatar_style", "diagonal"))
+        session["avatar_url"] = avatar
+    session[f"{provider}_linked"] = True
+    return redirect(f"/?{provider}_linked=1")
+
+
+def _oauth_callback(provider):
     error = request.args.get("error")
     code = request.args.get("code")
     if error or not code:
-        app.logger.error("Discord OAuth callback without code: error=%r args=%s",
-                         error, dict(request.args))
+        app.logger.error("%s OAuth callback without code: error=%r args=%s",
+                         provider, error, dict(request.args))
         return redirect("/login?error=oauth_failed")
-    verifier = session.pop("discord_oauth_verifier", None)
-    redirect_uri = session.pop("discord_oauth_redirect_uri", None)
-    intent = session.pop("discord_oauth_intent", None)
+    verifier = session.pop(f"{provider}_oauth_verifier", None)
+    redirect_uri = session.pop(f"{provider}_oauth_redirect_uri", None)
+    intent = session.pop(f"{provider}_oauth_intent", None)
     if not verifier or not redirect_uri:
-        app.logger.error("Discord OAuth callback lost PKCE session (verifier=%s redirect_uri=%s)",
-                         bool(verifier), bool(redirect_uri))
+        app.logger.error("%s OAuth callback lost PKCE session (verifier=%s redirect_uri=%s)",
+                         provider, bool(verifier), bool(redirect_uri))
         return redirect("/login?error=oauth_failed")
     try:
-        auth_uid, email, username, discord_id, discord_avatar = supabase_client.discord_oauth_callback(
-            code, redirect_uri=redirect_uri, code_verifier=verifier)
+        auth_uid, email, username, ext_id, avatar = supabase_client.oauth_callback(
+            provider, code, redirect_uri=redirect_uri, code_verifier=verifier)
     except supabase_client.AuthError as e:
-        app.logger.error("Discord OAuth exchange failed: %s", e)
+        app.logger.error("%s OAuth exchange failed: %s", provider, e)
         return redirect("/login?error=oauth_failed")
     if not auth_uid:
         return redirect("/login?error=oauth_failed")
 
     if intent == "link" and "user_id" in session and not session.get("is_guest"):
-        link_discord_identity(session["user_id"], auth_uid, discord_id, discord_avatar, username)
-        if discord_avatar and not session.get("avatar_url"):
-            update_user_avatar(session["user_id"], session.get("avatar_emoji", "🎲"),
-                               session.get("avatar_color", "#3b82f6"), discord_avatar)
-            session["avatar_url"] = discord_avatar
-        session["discord_linked"] = True
-        return redirect("/?discord_linked=1")
+        return _link_oauth_account(provider, auth_uid, ext_id, avatar, username)
 
     user = get_user_by_email(email) if email else None
     if not user and username:
         user = get_user_by_username(username)
     if not user:
         user_id = create_user_id()
-        create_user(user_id, username or "discord-user", "DISCORD_LOGIN", email or "",
-                    third_party=1, provider=1, ext_user_id=None, auth_provider="discord", auth_uid=auth_uid)
+        create_user(user_id, username or f"{provider}-user", f"{provider.upper()}_LOGIN",
+                    email or "", third_party=1, provider=1, ext_user_id=ext_id,
+                    auth_provider=provider, auth_uid=auth_uid)
+        _apply_oauth_identity(user_id, provider, auth_uid, ext_id, avatar, username)
         refreshed = get_user_by_id(user_id)
     else:
-        link_discord_identity(user[0], auth_uid, discord_id, discord_avatar, username)
+        _apply_oauth_identity(user[0], provider, auth_uid, ext_id, avatar, username)
         refreshed = get_user_by_id(user[0])
-    refreshed = _fill_discord_avatar_url(refreshed, discord_avatar)
+    refreshed = _fill_discord_avatar_url(refreshed, avatar)
     merged_user = merge_guest_profile_into_user(refreshed[0])
     if merged_user:
         refreshed = merged_user
@@ -561,18 +615,20 @@ def discord_callback():
     return response
 
 
+@app.route('/login/discord')
+def discord_login():
+    return _start_oauth("discord", "login")
+
+
+@app.route('/api/v1/discord/callback')
+def discord_callback():
+    return _oauth_callback("discord")
+
+
 @app.route('/login/discord/link')
 @login_required
 def discord_link():
-    redirect_uri = request.url_root.rstrip('/') + '/api/v1/discord/callback'
-    session["discord_oauth_intent"] = "link"
-    try:
-        url, verifier = supabase_client.discord_oauth_redirect(redirect_uri=redirect_uri)
-    except supabase_client.AuthError:
-        return redirect("/login?error=oauth_failed")
-    session["discord_oauth_verifier"] = verifier
-    session["discord_oauth_redirect_uri"] = redirect_uri
-    return redirect(url)
+    return _start_oauth("discord", "link")
 
 
 @app.route('/api/room/create', methods=['POST'])
@@ -782,7 +838,8 @@ def join_game():
     avatar_emoji = session.get("avatar_emoji", "🎲")
     avatar_color = session.get("avatar_color", "#3b82f6")
     avatar_url = session.get("avatar_url")
-    success = game.add_player(session["user_id"], session["username"], color, avatar_emoji, avatar_color, avatar_url)
+    avatar_style = session.get("avatar_style", "diagonal")
+    success = game.add_player(session["user_id"], session["username"], color, avatar_emoji, avatar_color, avatar_url, avatar_style)
     if not success:
         return jsonify({"error": "Beitreten fehlgeschlagen (max. 10 Spieler oder bereits drin)."}), 400
     return jsonify(game.to_dict())
@@ -1029,6 +1086,19 @@ def chat():
     return jsonify(game.to_dict())
 
 
+def _has_password(user):
+    provider = auth_provider_of(user)
+    return (provider == "supabase"
+            or (provider == "legacy" and bool(user[2]) and user[2] != "DISCORD_LOGIN"))
+
+
+def _verify_current_password(user, password):
+    provider = auth_provider_of(user)
+    if provider == "supabase" and user[17]:
+        return supabase_client.verify_password(user[3], password)
+    return password_matches(user[2] or "", password)
+
+
 @app.route('/api/user/profile')
 @login_required
 def user_profile():
@@ -1042,12 +1112,45 @@ def user_profile():
         "avatar_emoji": user[7] if len(user) > 7 and user[7] else "🎲",
         "avatar_color": user[8] if len(user) > 8 and user[8] else "#3b82f6",
         "avatar_url": user[14] if len(user) > 14 else None,
+        "avatar_style": user[18] if len(user) > 18 and user[18] else "diagonal",
+        "bio": user[19] if len(user) > 19 else None,
+        "status_text": user[20] if len(user) > 20 else None,
+        "show_last_seen": True if len(user) <= 21 or user[21] is None else bool(user[21]),
+        "show_in_search": True if len(user) <= 22 or user[22] is None else bool(user[22]),
+        "allow_friend_requests": True if len(user) <= 23 or user[23] is None else bool(user[23]),
+        "linked_accounts": get_linked_accounts(user[0]),
         "display_name": user[15] if len(user) > 15 else None,
         "discord_username": user[12] if len(user) > 12 else None,
         "discord_avatar": user[11] if len(user) > 11 else None,
-        "has_password": (auth_provider_of(user) == "supabase"
-                         or (auth_provider_of(user) == "legacy" and bool(user[2]) and user[2] != "DISCORD_LOGIN")),
+        "discord_id": user[10] if len(user) > 10 else None,
+        "auth_provider": auth_provider_of(user),
+        "has_password": _has_password(user),
     })
+
+
+@app.route('/api/user/profile', methods=['POST'])
+@login_required
+def update_profile():
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben kein Konto"}), 403
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    bio = (data.get("bio") or "").strip()[:160]
+    status_text = (data.get("status_text") or "").strip()[:60]
+    if not username:
+        return jsonify({"error": "Benutzername darf nicht leer sein"}), 400
+    username, name_error = validate_display_name(username, session["user_id"])
+    if name_error:
+        return jsonify({"error": name_error}), 400
+    if username != session.get("username") and session.get("room_code"):
+        return jsonify({"error": "Aendere deinen Namen bitte, nachdem du den Spielraum verlassen hast"}), 409
+    if not update_user_display_name(session["user_id"], username):
+        return jsonify({"error": "Fehler beim Speichern"}), 500
+    update_user_bio_status(session["user_id"], bio or None, status_text or None)
+    session["username"] = username
+    session["status_text"] = status_text or None
+    return jsonify({"message": "Profil aktualisiert", "username": username, "bio": bio or None,
+                    "status_text": status_text or None})
 
 
 @app.route('/api/user/avatar', methods=['POST'])
@@ -1057,11 +1160,14 @@ def set_avatar():
     emoji = data.get("emoji", "🎲").strip()
     color = data.get("color", "#3b82f6").strip()
     avatar_url = (data.get("avatar_url") or "").strip() or None
+    avatar_style = (data.get("avatar_style") or "diagonal").strip()
     username = data.get("username", session.get("username", "")).strip()
     if not emoji or len(emoji) > 4:
         return jsonify({"error": "Ungueltiges Emoji"}), 400
     if not color or len(color) > 20:
         return jsonify({"error": "Ungueltige Farbe"}), 400
+    if avatar_style not in AVATAR_STYLES:
+        return jsonify({"error": "Ungueltiger Avatar-Stil"}), 400
     if avatar_url and not (avatar_url.startswith("https://cdn.discordapp.com/") or avatar_url.startswith("https://media.discordapp.net/")):
         return jsonify({"error": "Ungueltige Profilbild-URL"}), 400
     username, name_error = validate_display_name(username, None if session.get("is_guest") else session["user_id"])
@@ -1069,25 +1175,30 @@ def set_avatar():
         return jsonify({"error": name_error}), 400
     if session.get("is_guest"):
         set_guest_session(session.get("guest_id"), username, emoji, color, avatar_url, is_customized=True)
+        session["avatar_style"] = avatar_style
         return jsonify({
             "message": "Gastprofil aktualisiert",
             "username": session["username"],
             "avatar_emoji": session["avatar_emoji"],
             "avatar_color": session["avatar_color"],
             "avatar_url": session["avatar_url"],
+            "avatar_style": avatar_style,
         }), 200
     if username != session.get("username") and session.get("room_code"):
         return jsonify({"error": "Aendere deinen Namen bitte, nachdem du den Spielraum verlassen hast"}), 409
-    success = update_user_avatar(session["user_id"], emoji, color, avatar_url)
+    success = update_user_avatar(session["user_id"], emoji, color, avatar_url, avatar_style)
     if not success:
         return jsonify({"error": "Fehler beim Speichern"}), 500
     session["avatar_emoji"] = emoji
     session["avatar_color"] = color
     session["avatar_url"] = avatar_url
+    session["avatar_style"] = avatar_style
     if username != session.get("username"):
         update_user_display_name(session["user_id"], username)
         session["username"] = username
-    return jsonify({"message": "Profil aktualisiert", "username": session["username"], "avatar_emoji": emoji, "avatar_color": color, "avatar_url": avatar_url})
+    return jsonify({"message": "Profil aktualisiert", "username": session["username"],
+                    "avatar_emoji": emoji, "avatar_color": color, "avatar_url": avatar_url,
+                    "avatar_style": avatar_style})
 
 
 @app.route('/api/user/email', methods=['POST'])
@@ -1095,11 +1206,20 @@ def set_avatar():
 def update_email():
     if session.get("is_guest"):
         return jsonify({"error": "Gaeste haben keine E-Mail-Adresse"}), 403
-    email = (request.get_json(silent=True) or {}).get("email", "").strip().lower()
+    data = request.get_json(silent=True) or {}
+    email = (data.get("email") or "").strip().lower()
     if not email or "@" not in email or len(email) > 254:
         return jsonify({"error": "Bitte gib eine gueltige E-Mail-Adresse ein"}), 400
     user = get_user_by_id(session["user_id"])
-    if user and auth_provider_of(user) == "supabase" and user[17]:
+    if not user:
+        return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    if not _has_password(user):
+        return jsonify({"error": "Discord-Nutzer ohne Passwort koennen ihre E-Mail nicht aendern"}), 403
+    if not data.get("current_password"):
+        return jsonify({"error": "Aktuelles Passwort fehlt"}), 400
+    if not _verify_current_password(user, data.get("current_password", "")):
+        return jsonify({"error": "Das aktuelle Passwort ist nicht korrekt"}), 403
+    if auth_provider_of(user) == "supabase" and user[17]:
         try:
             supabase_client.update_email(user[17], email)
         except supabase_client.AuthError:
@@ -1140,6 +1260,115 @@ def update_password():
     return jsonify({"message": "Passwort aktualisiert"})
 
 
+@app.route('/api/user/privacy', methods=['POST'])
+@login_required
+def update_privacy():
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben keine Privatsphaere-Einstellungen"}), 403
+    user = get_user_by_id(session["user_id"])
+    if not user:
+        return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    data = request.get_json(silent=True) or {}
+    flags = {
+        "show_last_seen": True if len(user) <= 21 or user[21] is None else bool(user[21]),
+        "show_in_search": True if len(user) <= 22 or user[22] is None else bool(user[22]),
+        "allow_friend_requests": True if len(user) <= 23 or user[23] is None else bool(user[23]),
+    }
+    for key in flags:
+        if key in data:
+            if not isinstance(data[key], bool):
+                return jsonify({"error": f"Ungueltiger Wert fuer {key}"}), 400
+            flags[key] = data[key]
+    update_user_privacy(session["user_id"], flags["show_last_seen"],
+                        flags["show_in_search"], flags["allow_friend_requests"])
+    return jsonify({"message": "Privatsphaere aktualisiert", **flags})
+
+
+@app.route('/api/user/connections/<provider>')
+@login_required
+def get_connection(provider):
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben keine Verknuepfungen"}), 403
+    if provider not in supabase_client.OAUTH_PROVIDERS:
+        return jsonify({"error": "Unbekannter Provider"}), 400
+    accounts = get_linked_accounts(session["user_id"])
+    entry = next((a for a in accounts if a.get("provider") == provider), None)
+    if not entry:
+        return jsonify({"error": "Verknuepfung nicht gefunden"}), 404
+    return jsonify(entry)
+
+
+@app.route('/api/user/connections/<provider>', methods=['DELETE'])
+@login_required
+def unlink_connection(provider):
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben keine Verknuepfungen"}), 403
+    if provider not in supabase_client.OAUTH_PROVIDERS:
+        return jsonify({"error": "Unbekannter Provider"}), 400
+    user = get_user_by_id(session["user_id"])
+    if not user:
+        return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    accounts = get_linked_accounts(user[0])
+    if not any(a.get("provider") == provider for a in accounts):
+        return jsonify({"error": "Verknuepfung nicht gefunden"}), 404
+    # Login-Provider darf nicht getrennt werden, solange es kein Passwort gibt.
+    if auth_provider_of(user) == provider and not _has_password(user):
+        return jsonify({"error": "Diese Verknuepfung ist deine einzige Anmeldung; setze zuerst ein Passwort"}), 403
+    remove_linked_account(user[0], provider)
+    if provider == "discord":
+        clear_discord_identity(user[0])
+    return jsonify({"message": "Verknuepfung entfernt", "provider": provider})
+
+
+@app.route('/api/user/sessions')
+@login_required
+def list_sessions():
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben keine Sitzungen"}), 403
+    token = request.cookies.get("remember_token")
+    return jsonify({"sessions": get_sessions(session["user_id"], token)})
+
+
+@app.route('/api/user/sessions', methods=['DELETE'])
+@login_required
+def revoke_other_sessions():
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben keine Sitzungen"}), 403
+    token = request.cookies.get("remember_token")
+    count = delete_other_sessions(session["user_id"], token)
+    return jsonify({"message": f"{count} andere Sitzungen beendet", "revoked": count})
+
+
+@app.route('/api/user/delete', methods=['POST'])
+@login_required
+def delete_account():
+    if session.get("is_guest"):
+        return jsonify({"error": "Gaeste haben kein Konto"}), 403
+    data = request.get_json(silent=True) or {}
+    user = get_user_by_id(session["user_id"])
+    if not user:
+        return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    if _has_password(user):
+        if not _verify_current_password(user, data.get("password", "")):
+            return jsonify({"error": "Passwort ist nicht korrekt"}), 403
+    else:
+        # Discord-Accounts ohne Passwort bestaetigen die Loeschung per Username-Tipp.
+        if (data.get("username") or "").strip() != user[1]:
+            return jsonify({"error": "Benutzername stimmt nicht ueberein"}), 403
+    leave_current_room(session["user_id"], session["username"])
+    auth_uid = user[17] if len(user) > 17 else None
+    if auth_uid:
+        supabase_client.delete_auth_user(auth_uid)
+    delete_user(session["user_id"])
+    token = request.cookies.get("remember_token")
+    if token:
+        delete_auth_token(token)
+    session.clear()
+    response = jsonify({"message": "Konto geloescht"})
+    response.delete_cookie("remember_token", path="/")
+    return response
+
+
 @app.route('/api/friends/search')
 @login_required
 def friends_search():
@@ -1176,6 +1405,8 @@ def friends_request():
     friend = get_user_by_id(friend_id)
     if not friend:
         return jsonify({"error": "Benutzer nicht gefunden"}), 404
+    if len(friend) > 23 and friend[23] is False:
+        return jsonify({"error": "Dieser Nutzer akzeptiert keine Freundschaftsanfragen"}), 403
     success, msg = send_friend_request(session["user_id"], friend_id)
     if not success:
         return jsonify({"error": msg}), 400

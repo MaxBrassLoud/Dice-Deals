@@ -10,6 +10,7 @@ Passwörter werden nicht mehr lokal gehasst, sobald ein Konto auf Supabase
 Auth umgestellt ist; Legacy-Hashes bleiben bis zur ersten Anmeldung lesbar.
 """
 
+import json
 import os
 import secrets
 import time
@@ -33,8 +34,23 @@ USER_COLUMNS = (
     "id, username, password, email, third_party, provider, user_id, "
     "avatar_emoji, avatar_color, last_seen, discord_id, discord_avatar, "
     "discord_username, current_room_code, avatar_url, display_name, "
-    "auth_provider, auth_uid"
+    "auth_provider, auth_uid, avatar_style, bio, status_text, "
+    "show_last_seen, show_in_search, allow_friend_requests, linked_accounts"
 )
+
+AVATAR_STYLES = ("diagonal", "horizontal", "vertical", "radial", "solid")
+
+
+def _linked_accounts_from(row):
+    """Liest linked_accounts (Index 24) als Liste; fehlende Spalte -> []."""
+    if not row or len(row) <= 24 or not row[24]:
+        return []
+    try:
+        import json as _json
+        value = _json.loads(row[24])
+        return value if isinstance(value, list) else []
+    except (ValueError, TypeError):
+        return []
 
 
 def create_database():
@@ -59,7 +75,14 @@ def create_database():
             avatar_url TEXT,
             display_name TEXT,
             auth_provider TEXT DEFAULT 'legacy',
-            auth_uid TEXT UNIQUE
+            auth_uid TEXT UNIQUE,
+            avatar_style TEXT DEFAULT 'diagonal',
+            bio TEXT,
+            status_text TEXT,
+            show_last_seen BOOLEAN DEFAULT true,
+            show_in_search BOOLEAN DEFAULT true,
+            allow_friend_requests BOOLEAN DEFAULT true,
+            linked_accounts TEXT DEFAULT '[]'
         )
         """)
         # Spalten für Bestands-Datenbanken, die schon ohne sie angelegt wurden.
@@ -69,6 +92,24 @@ def create_database():
             c.execute("ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'legacy'")
         if "auth_uid" not in columns:
             c.execute("ALTER TABLE users ADD COLUMN auth_uid TEXT UNIQUE")
+        _add_missing_columns(c, columns, {
+            "avatar_style": "TEXT DEFAULT 'diagonal'",
+            "bio": "TEXT",
+            "status_text": "TEXT",
+            "show_last_seen": "BOOLEAN DEFAULT true",
+            "show_in_search": "BOOLEAN DEFAULT true",
+            "allow_friend_requests": "BOOLEAN DEFAULT true",
+            "linked_accounts": "TEXT DEFAULT '[]'",
+        })
+
+        # Bestands-Discord-User ohne linked_accounts-Eintrag nachträglich verknüpfen.
+        c.execute("""
+        UPDATE users SET linked_accounts = json_build_array(json_build_object(
+                         'provider', 'discord', 'id', discord_id,
+                         'username', discord_username, 'avatar', discord_avatar))
+        WHERE auth_provider = 'discord' AND discord_id IS NOT NULL
+          AND (linked_accounts IS NULL OR linked_accounts = '[]')
+        """)
 
         c.execute("""
         CREATE TABLE IF NOT EXISTS friendships (
@@ -108,6 +149,12 @@ def create_database():
         )
         """)
         conn.commit()
+
+
+def _add_missing_columns(cursor, existing_columns, definitions):
+    for name, definition in definitions.items():
+        if name not in existing_columns:
+            cursor.execute(f"ALTER TABLE users ADD COLUMN {name} {definition}")
 
 
 def create_user(user_id, username, password, email, third_party=0, provider=0, ext_user_id=None,
@@ -155,6 +202,7 @@ def link_discord_identity(user_id, auth_uid, discord_id, discord_avatar, discord
                 (discord_id, discord_avatar, discord_username, auth_uid, user_id),
             )
         conn.commit()
+    upsert_linked_account(user_id, "discord", discord_id, discord_username, discord_avatar)
 
 
 def get_user_by_id(user_id):
@@ -174,11 +222,38 @@ def set_supabase_identity(user_id, auth_uid):
     return True
 
 
-def update_user_avatar(user_id, avatar_emoji, avatar_color, avatar_url=None):
+def update_user_avatar(user_id, avatar_emoji, avatar_color, avatar_url=None, avatar_style=None):
+    """avatar_style=None laesst den gespeicherten Stil unverändert."""
+    if avatar_style is None:
+        sql = ("UPDATE users SET avatar_emoji = %s, avatar_color = %s, avatar_url = %s WHERE id = %s")
+        params = (avatar_emoji, avatar_color, avatar_url, user_id)
+    else:
+        sql = ("UPDATE users SET avatar_emoji = %s, avatar_color = %s, avatar_url = %s, "
+               "avatar_style = %s WHERE id = %s")
+        params = (avatar_emoji, avatar_color, avatar_url, avatar_style, user_id)
     with get_connection() as conn:
         with conn.cursor() as c:
-            c.execute("UPDATE users SET avatar_emoji = %s, avatar_color = %s, avatar_url = %s WHERE id = %s",
-                      (avatar_emoji, avatar_color, avatar_url, user_id))
+            c.execute(sql, params)
+        conn.commit()
+        return c.rowcount > 0
+
+
+def update_user_bio_status(user_id, bio, status_text):
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("UPDATE users SET bio = %s, status_text = %s WHERE id = %s",
+                      (bio, status_text, user_id))
+        conn.commit()
+        return c.rowcount > 0
+
+
+def update_user_privacy(user_id, show_last_seen, show_in_search, allow_friend_requests):
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                UPDATE users SET show_last_seen = %s, show_in_search = %s,
+                       allow_friend_requests = %s WHERE id = %s
+            """, (show_last_seen, show_in_search, allow_friend_requests, user_id))
         conn.commit()
         return c.rowcount > 0
 
@@ -210,21 +285,25 @@ def update_last_seen(user_id):
 
 
 def search_users(query, exclude_user_id=None):
+    """Sucht nur Nutzer, die in der Suche sichtbar sind (show_in_search)."""
     with get_connection() as conn:
         with conn.cursor() as c:
             if exclude_user_id:
                 c.execute("""
-                    SELECT id, username, avatar_emoji, avatar_color, last_seen, avatar_url
-                    FROM users WHERE username ILIKE %s AND id != %s LIMIT 20
+                    SELECT id, username, avatar_emoji, avatar_color, last_seen, avatar_url, avatar_style
+                    FROM users WHERE username ILIKE %s AND id != %s AND show_in_search
+                    LIMIT 20
                 """, (f"%{query}%", exclude_user_id))
             else:
                 c.execute("""
-                    SELECT id, username, avatar_emoji, avatar_color, last_seen, avatar_url
-                    FROM users WHERE username ILIKE %s LIMIT 20
+                    SELECT id, username, avatar_emoji, avatar_color, last_seen, avatar_url, avatar_style
+                    FROM users WHERE username ILIKE %s AND show_in_search
+                    LIMIT 20
                 """, (f"%{query}%",))
             users = c.fetchall()
     return [{"id": u[0], "username": u[1], "avatar_emoji": u[2], "avatar_color": u[3],
-             "online": (time.time() - (u[4] or 0)) < 120, "avatar_url": u[5]} for u in users]
+             "online": (time.time() - (u[4] or 0)) < 120, "avatar_url": u[5],
+             "avatar_style": u[6] or "diagonal"} for u in users]
 
 
 def send_friend_request(user_id, friend_id):
@@ -284,7 +363,8 @@ def get_friends(user_id):
     with get_connection() as conn:
         with conn.cursor() as c:
             c.execute("""
-                SELECT u.id, u.username, u.avatar_emoji, u.avatar_color, u.last_seen, f.status, u.avatar_url
+                SELECT u.id, u.username, u.avatar_emoji, u.avatar_color, u.last_seen, f.status,
+                       u.avatar_url, u.show_last_seen, u.avatar_style
                 FROM friendships f
                 JOIN users u ON (u.id = CASE WHEN f.user_id = %s THEN f.friend_id ELSE f.user_id END)
                 WHERE (f.user_id = %s OR f.friend_id = %s) AND f.status IN ('accepted', 'pending')
@@ -295,9 +375,10 @@ def get_friends(user_id):
     pending_outgoing = []
     for r in rows:
         is_self = r[0] == user_id
-        online = (time.time() - (r[4] or 0)) < 120
+        # "Zuletzt online" wird nur gezeigt, wenn der andere das erlaubt (Index 7).
+        online = bool(r[7]) and (time.time() - (r[4] or 0)) < 120
         entry = {"id": r[0], "username": r[1], "avatar_emoji": r[2], "avatar_color": r[3],
-                 "online": online, "avatar_url": r[6]}
+                 "online": online, "avatar_url": r[6], "avatar_style": r[8] or "diagonal"}
         if r[5] == "pending":
             if is_self:
                 pending_outgoing.append(entry)
@@ -325,14 +406,14 @@ def get_friend_invites(user_id):
     with get_connection() as conn:
         with conn.cursor() as c:
             c.execute("""
-                SELECT fi.id, u.username, u.avatar_emoji, u.avatar_color, fi.room_code, fi.created_at, u.avatar_url
+                SELECT fi.id, u.username, u.avatar_emoji, u.avatar_color, fi.room_code, fi.created_at, u.avatar_url, u.avatar_style
                 FROM friend_invites fi
                 JOIN users u ON u.id = fi.inviter_id
                 WHERE fi.invitee_id = %s AND fi.created_at > %s
             """, (user_id, time.time() - 3600))
             rows = c.fetchall()
     return [{"id": r[0], "from_username": r[1], "from_avatar_emoji": r[2], "from_avatar_color": r[3],
-             "room_code": r[4], "from_avatar_url": r[6]} for r in rows]
+             "room_code": r[4], "from_avatar_url": r[6], "avatar_style": r[7] or "diagonal"} for r in rows]
 
 
 def dismiss_friend_invite(invite_id):
@@ -348,6 +429,121 @@ def update_user_discord_info(user_id, discord_id, discord_avatar, discord_userna
             c.execute("UPDATE users SET discord_id = %s, discord_avatar = %s, discord_username = %s WHERE id = %s",
                       (discord_id, discord_avatar, discord_username, user_id))
         conn.commit()
+
+
+# ---------------------------------------------------------------------------
+# Verknüpfte Accounts (Discord)
+# ---------------------------------------------------------------------------
+
+def upsert_linked_account(user_id, provider, ext_id, username, avatar):
+    """Speichert eine OAuth-Verknüpfung in linked_accounts (JSON-Liste)."""
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT linked_accounts FROM users WHERE id = %s", (user_id,))
+            row = c.fetchone()
+            accounts = _linked_accounts_from(row) if row else []
+            accounts = [a for a in accounts if a.get("provider") != provider]
+            accounts.append({
+                "provider": provider,
+                "id": ext_id,
+                "username": username,
+                "avatar": avatar,
+            })
+            c.execute("UPDATE users SET linked_accounts = %s WHERE id = %s",
+                      (json.dumps(accounts, ensure_ascii=False), user_id))
+        conn.commit()
+    return True
+
+
+def remove_linked_account(user_id, provider):
+    """Entfernt eine Verknüpfung; gibt das entfernte Objekt oder None zurück."""
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT linked_accounts FROM users WHERE id = %s", (user_id,))
+            row = c.fetchone()
+            accounts = _linked_accounts_from(row) if row else []
+            kept = [a for a in accounts if a.get("provider") != provider]
+            removed = next((a for a in accounts if a.get("provider") == provider), None)
+            c.execute("UPDATE users SET linked_accounts = %s WHERE id = %s",
+                      (json.dumps(kept, ensure_ascii=False), user_id))
+        conn.commit()
+    return removed
+
+
+def get_linked_accounts(user_id):
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("SELECT linked_accounts FROM users WHERE id = %s", (user_id,))
+            row = c.fetchone()
+    return _linked_accounts_from(row) if row else []
+
+
+def link_oauth_identity(user_id, provider, auth_uid, ext_id, username, avatar):
+    """Verknüpft einen OAuth-Provider ohne die Discord-Legacy-Spalten
+    zu beruehren. auth_uid wird nur gesetzt, wenn leer.
+    """
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("UPDATE users SET auth_uid = COALESCE(auth_uid, %s) WHERE id = %s",
+                      (auth_uid, user_id))
+        conn.commit()
+    upsert_linked_account(user_id, provider, ext_id, username, avatar)
+
+
+def clear_discord_identity(user_id):
+    """Entfernt die Discord-Legacy-Spalten (nur Spalten, nicht linked_accounts)."""
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("UPDATE users SET discord_id = NULL, discord_avatar = NULL, "
+                      "discord_username = NULL WHERE id = %s", (user_id,))
+        conn.commit()
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Angemeldete Sitzungen
+# ---------------------------------------------------------------------------
+
+def get_sessions(user_id, current_token=None):
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("""
+                SELECT token, created_at, last_used FROM auth_tokens
+                WHERE user_id = %s ORDER BY created_at DESC
+            """, (user_id,))
+            rows = c.fetchall()
+    sessions = []
+    for token, created_at, last_used in rows:
+        sessions.append({
+            "id": (token[:8] + "…") if token else "",
+            "created_at": created_at,
+            "last_used": last_used,
+            "current": bool(current_token and token == current_token),
+        })
+    return sessions
+
+
+def delete_other_sessions(user_id, current_token):
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("DELETE FROM auth_tokens WHERE user_id = %s AND token != %s",
+                      (user_id, current_token))
+        conn.commit()
+        return c.rowcount
+
+
+def delete_user(user_id):
+    """Löscht ein Konto inkl. Freundschaften, Einladungen und Tokens."""
+    with get_connection() as conn:
+        with conn.cursor() as c:
+            c.execute("DELETE FROM friendships WHERE user_id = %s OR friend_id = %s",
+                      (user_id, user_id))
+            c.execute("DELETE FROM friend_invites WHERE inviter_id = %s OR invitee_id = %s",
+                      (user_id, user_id))
+            c.execute("DELETE FROM auth_tokens WHERE user_id = %s", (user_id,))
+            c.execute("DELETE FROM users WHERE id = %s", (user_id,))
+        conn.commit()
+        return c.rowcount > 0
 
 
 # ---------------------------------------------------------------------------

@@ -44,7 +44,7 @@ function renderPlayers(s) {
             const chipTitle = `${pr.name}${houseInfo ? " - " + houseInfo : ""}`;
             return `<span class="prop-chip-mini" style="--chip:${CMAP[pr.color_group] || "#888"}" title="${chipTitle}"></span>`;
         }).join("");
-        card.innerHTML=`<div class="player-avatar" style="background:linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc);font-size:16px;">${avatarContent(p)}</div>
+        card.innerHTML=`<div class="player-avatar" style="background:${avatarBgStyle(PCOLORS[p.color]||p.avatar_color||'#888', p.avatar_style)};font-size:16px;">${avatarContent(p)}</div>
             <div style="flex:1;min-width:0;"><div class="player-name">${p.username}${p.username===ME?' <span style="font-size:10px;color:var(--text2);font-weight:400">(Du)</span>':''}${hostTag}${p.in_jail?' ⛓️':''}${disconnTag}</div>
             <div class="player-money">${p.money.toLocaleString("de-DE")} €</div>
             <div class="player-props">${pc} Grundstück${pc!==1?"e":""}${jailCards>0?` &middot; <span style="color:var(--accent2)">🃏 ${jailCards}x</span>`:""}</div><div class="prop-chips">${propChips}</div></div>${isActive&&!isDisconn?'<div class="turn-badge">AM ZUG</div>':''}`;

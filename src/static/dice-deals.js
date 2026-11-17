@@ -92,7 +92,7 @@ function checkWinner(s) {
         sorted.forEach((p, i) => {
             const row = document.createElement("div"); row.className = "rank-row" + (i === 0 ? " rank-1" : "");
             const status = p.is_bankrupt ? "💀 Bankrott" : p.is_disconnected ? "👋 Verlassen" : `${assetVal(p).toLocaleString("de-DE")} €`;
-            row.innerHTML = `<span class="rank-medal">${medals[i] || `${i+1}.`}</span><div class="player-avatar" style="width:26px;height:26px;font-size:14px;background:linear-gradient(135deg,${PCOLORS[p.color]||p.avatar_color||'#888'},${(PCOLORS[p.color]||p.avatar_color||'#888')}cc);border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:800;flex-shrink:0;">${avatarContent(p)}</div><span class="rank-name">${p.username}</span><span class="rank-val">${status}</span>`;
+            row.innerHTML = `<span class="rank-medal">${medals[i] || `${i+1}.`}</span><div class="player-avatar" style="width:26px;height:26px;font-size:14px;background:${avatarBgStyle(PCOLORS[p.color]||p.avatar_color||'#888', p.avatar_style)};border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:white;font-weight:800;flex-shrink:0;">${avatarContent(p)}</div><span class="rank-name">${p.username}</span><span class="rank-val">${status}</span>`;
             ranking.appendChild(row);
         });
     }
@@ -422,7 +422,7 @@ async function loadFriendsForInvite() {
             el.className = "friend-item";
             el.style.cssText = "margin-bottom:6px;";
             el.innerHTML = `
-                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);width:32px;height:32px;font-size:16px;">${avatarContent(u)}</div>
+                <div class="friend-avatar" style="background:${avatarBgStyle(u.avatar_color, u.avatar_style)};width:32px;height:32px;font-size:16px;">${avatarContent(u)}</div>
                 <div class="friend-info">
                     <div class="friend-name" style="font-size:13px;">${u.username}</div>
                     <div class="friend-status">${u.online ? 'Online' : 'Offline'}</div>

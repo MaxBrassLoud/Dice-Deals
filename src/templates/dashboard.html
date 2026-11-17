@@ -446,6 +446,29 @@
         .color-opt:hover { transform: scale(1.12); }
         .color-opt.selected { border-color: white; box-shadow: 0 0 0 2px rgba(255,255,255,0.3); transform: scale(1.12); }
 
+        .style-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .style-opt {
+            border: 2px solid transparent;
+            border-radius: 10px;
+            background: var(--bg3);
+            cursor: pointer;
+            padding: 6px 4px;
+            transition: all 0.15s;
+            font-family: inherit;
+        }
+        .style-opt:hover { border-color: var(--accent); }
+        .style-opt.selected { border-color: var(--accent); background: rgba(59,130,246,0.15); }
+        .style-swatch {
+            width: 100%; height: 22px; border-radius: 6px; margin-bottom: 4px;
+        }
+        .style-opt span { font-size: 10px; color: var(--text2); }
+        .style-opt.selected span { color: var(--text); }
+
         .modal-footer { display: flex; gap: 10px; margin-top: 8px; }
         .modal-footer .btn { flex: 1; }
 
@@ -701,10 +724,11 @@
     <div class="header">
         <div class="greeting">
             <h1>Hallo, <span id="greeting-name">{{ username }}</span>{% if is_guest %}<span class="guest-badge" onclick="event.stopPropagation(); openAvatarModal()">Gast</span>{% endif %}</h1>
+            {% if status_text %}<p id="status-text" style="color:var(--teal);">{{ status_text }}</p>{% endif %}
             <p>Bereit fuer eine Runde Dice Deals?</p>
         </div>
         <div class="avatar-wrap" onclick="openAvatarModal()" title="Avatar anpassen">
-            <div class="avatar" id="header-avatar" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
+            <div class="avatar" id="header-avatar" style="background:{{ avatar_bg_style(avatar_color, avatar_style) }};">
                 {% if avatar_url %}<img src="{{ avatar_url }}" alt="Avatar">{% else %}{{ avatar_emoji }}{% endif %}
             </div>
             <div class="avatar-edit-hint">✏</div>
@@ -796,6 +820,10 @@
                 <span>Abmelden</span>
             </a>
             {% endif %}
+            <a href="/account" class="action-btn">
+                <span class="icon">⚙️</span>
+                <span>Mein Konto</span>
+            </a>
             <div class="action-btn" onclick="openAvatarModal()">
                 <span class="icon">🎨</span>
                 <span>Avatar anpassen</span>
@@ -831,13 +859,15 @@
                 </div>
             </section>
             <section class="profile-editor-column">
-                <div class="avatar-preview" id="avatar-preview" style="background:linear-gradient(135deg,{{ avatar_color }},{{ avatar_color }}dd);">
+                <div class="avatar-preview" id="avatar-preview" style="background:{{ avatar_bg_style(avatar_color, avatar_style) }};">
                     {% if avatar_url %}<img src="{{ avatar_url }}" alt="Avatar">{% else %}{{ avatar_emoji }}{% endif %}
                 </div>
                 <div class="section-label">Emoji</div>
                 <div class="emoji-grid" id="emoji-grid"></div>
                 <div class="section-label">Farbe</div>
                 <div class="color-grid" id="avatar-color-grid"></div>
+                <div class="section-label">Stil</div>
+                <div class="style-grid" id="avatar-style-grid"></div>
                 <div id="discord-avatar-wrapper">
                     <div class="section-label">Discord-Profilbild</div>
                     <div id="discord-avatar-section"></div>
@@ -933,6 +963,7 @@
     let selEmoji = "{{ avatar_emoji }}";
     let selColor = "{{ avatar_color }}";
     let selAvatarUrl = "{{ avatar_url or '' }}";
+    let selAvatarStyle = "{{ avatar_style or 'diagonal' }}";
     const IS_GUEST = {{ 'true' if is_guest else 'false' }};
     let profileCustomized = {{ 'true' if profile_customized else 'false' }};
     let profileUsername = "{{ username }}";
@@ -944,10 +975,23 @@
         return (u && u.avatar_emoji) || "🎲";
     }
 
+    /* Identisch zu avatarBgStyle() in dice-deals-state.js (dashboard laedt state.js nicht). */
+    function avatarBgStyle(color, style) {
+        const c = color || "#3b82f6";
+        switch (style) {
+            case "horizontal": return `linear-gradient(90deg, ${c}, ${c}dd)`;
+            case "vertical": return `linear-gradient(180deg, ${c}, ${c}dd)`;
+            case "radial": return `radial-gradient(circle at 30% 30%, ${c}f2, ${c})`;
+            case "solid": return c;
+            default: return `linear-gradient(135deg, ${c}, ${c}dd)`;
+        }
+    }
+
     function openAvatarModal() {
         selEmoji = "{{ avatar_emoji }}";
         selColor = "{{ avatar_color }}";
         selAvatarUrl = "{{ avatar_url or '' }}";
+        selAvatarStyle = "{{ avatar_style or 'diagonal' }}";
         const title = document.getElementById("avatar-modal-title");
         const subtitle = document.getElementById("avatar-modal-subtitle");
         const guestSection = document.getElementById("guest-username-section");
@@ -970,6 +1014,7 @@
         if (nameInput) nameInput.value = profileUsername;
         renderEmojiGrid();
         renderColorGrid();
+        renderStyleGrid();
         renderDiscordAvatarOption();
         updatePreview();
         document.getElementById("avatar-modal").classList.add("show");
@@ -997,6 +1042,26 @@
             el.className = "color-opt" + (c === selColor ? " selected" : "");
             el.style.background = c;
             el.onclick = () => { selColor = c; renderColorGrid(); updatePreview(); };
+            grid.appendChild(el);
+        });
+    }
+    const AVATAR_STYLES = [
+        { id: "diagonal", label: "Diagonal" },
+        { id: "horizontal", label: "Horizontal" },
+        { id: "vertical", label: "Vertikal" },
+        { id: "radial", label: "Radial" },
+        { id: "solid", label: "Farbe" }
+    ];
+
+    function renderStyleGrid() {
+        const grid = document.getElementById("avatar-style-grid");
+        grid.innerHTML = "";
+        AVATAR_STYLES.forEach(s => {
+            const el = document.createElement("button");
+            el.type = "button";
+            el.className = "style-opt" + (s.id === selAvatarStyle ? " selected" : "");
+            el.innerHTML = `<div class="style-swatch" style="background:${avatarBgStyle(selColor, s.id)}"></div><span>${s.label}</span>`;
+            el.onclick = () => { selAvatarStyle = s.id; renderStyleGrid(); updatePreview(); };
             grid.appendChild(el);
         });
     }
@@ -1045,7 +1110,7 @@
             preview.innerHTML = `<img src="${selAvatarUrl}" alt="Avatar">`;
         } else {
             preview.textContent = selEmoji;
-            preview.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+            preview.style.background = avatarBgStyle(selColor, selAvatarStyle);
         }
     }
 
@@ -1058,7 +1123,7 @@
         }
         profileUsername = newName;
         try {
-            const payload = { emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null, username: profileUsername };
+            const payload = { emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null, avatar_style: selAvatarStyle, username: profileUsername };
             const res = await fetch("/api/user/avatar", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -1089,7 +1154,7 @@
                 header.style.background = "transparent";
                 header.innerHTML = `<img src="${selAvatarUrl}" alt="Avatar">`;
             } else {
-                header.style.background = `linear-gradient(135deg, ${selColor}, ${selColor}dd)`;
+                header.style.background = avatarBgStyle(selColor, selAvatarStyle);
                 header.textContent = selEmoji;
             }
             closeAvatarModal();
@@ -1252,7 +1317,7 @@
                     const el = document.createElement("div");
                     el.className = "search-result-item";
                     el.innerHTML = `
-                        <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">
+                        <div class="friend-avatar" style="background:${avatarBgStyle(u.avatar_color, u.avatar_style)};">
                             ${avatarMarkup(u)}
                             <div class="friend-online-dot ${u.online ? 'online' : 'offline'}"></div>
                         </div>
@@ -1375,7 +1440,7 @@
             const el = document.createElement("div");
             el.className = "friend-item";
             el.innerHTML = `
-                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${avatarMarkup(u)}</div>
+                <div class="friend-avatar" style="background:${avatarBgStyle(u.avatar_color, u.avatar_style)};">${avatarMarkup(u)}</div>
                 <div class="friend-info">
                     <div class="friend-name">${u.username}</div>
                     <div class="friend-status">Moechte dich als Freund</div>
@@ -1400,7 +1465,7 @@
             const el = document.createElement("div");
             el.className = "friend-item";
             el.innerHTML = `
-                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">${avatarMarkup(u)}</div>
+                <div class="friend-avatar" style="background:${avatarBgStyle(u.avatar_color, u.avatar_style)};">${avatarMarkup(u)}</div>
                 <div class="friend-info">
                     <div class="friend-name">${u.username}</div>
                     <div class="friend-status" style="color:var(--warning);">Anfrage gesendet...</div>
@@ -1413,7 +1478,7 @@
             el.className = "friend-item";
             el.style.animationDelay = `${i * 0.05}s`;
             el.innerHTML = `
-                <div class="friend-avatar" style="background:linear-gradient(135deg,${u.avatar_color},${u.avatar_color}cc);">
+                <div class="friend-avatar" style="background:${avatarBgStyle(u.avatar_color, u.avatar_style)};">
                     ${avatarMarkup(u)}
                     <div class="friend-online-dot ${u.online ? 'online' : 'offline'}"></div>
                 </div>
@@ -1442,7 +1507,7 @@
             const el = document.createElement("div");
             el.className = "friend-invite-banner";
             el.innerHTML = `
-                <span class="friend-avatar" style="width:34px;height:34px;background:linear-gradient(135deg,${inv.from_avatar_color},${inv.from_avatar_color}cc);">${avatarMarkup({avatar_url: inv.from_avatar_url, avatar_emoji: "🎮"})}</span>
+                <span class="friend-avatar" style="width:34px;height:34px;background:${avatarBgStyle(inv.from_avatar_color, inv.avatar_style)};">${avatarMarkup({avatar_url: inv.from_avatar_url, avatar_emoji: "🎮"})}</span>
                 <div class="invite-text"><strong>${inv.from_username}</strong> laden dich into Raum <strong>${inv.room_code}</strong> ein</div>
                 <div class="invite-actions">
                     <button class="btn success" onclick="respondInvite(${inv.id}, true)">Beitreten</button>

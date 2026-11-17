@@ -90,13 +90,18 @@ def delete_auth_user(auth_uid):
         return False
 
 
-def discord_oauth_redirect(provider: str = "discord", redirect_uri: str = None) -> Tuple[str, str]:
+OAUTH_PROVIDERS = ("discord",)
+
+
+def oauth_redirect(provider: str = "discord", redirect_uri: str = None) -> Tuple[str, str]:
     """Erzeugt die Supabase-OAuth-Authorize-URL mit PKCE (S256).
 
     Gibt (authorize_url, code_verifier) zurueck. Der Verifier muss bis zum
     Callback (z.B. in der Flask-Session) aufbewahrt und beim Code-Tausch
     wieder uebergeben werden.
     """
+    if provider not in OAUTH_PROVIDERS:
+        raise AuthError(f"Unbekannter OAuth-Provider: {provider}")
     rc = redirect_uri or os.getenv("SUPABASE_REDIRECT_URI", "")
     if not rc:
         raise AuthError("Redirect-URI nicht konfiguriert (redirect_uri/SUPABASE_REDIRECT_URI)")
@@ -113,12 +118,36 @@ def discord_oauth_redirect(provider: str = "discord", redirect_uri: str = None) 
     return f"{SUPABASE_URL.rstrip('/')}/auth/v1/authorize?{qs}", verifier
 
 
-def discord_oauth_callback(code: str, redirect_uri: str = None, code_verifier: str = None) -> Tuple[Optional[str], ...]:
+def _extract_identity(provider: str, meta: dict, email: Optional[str]) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Liest (username, ext_id, avatar) aus den Provider-Metadaten."""
+    username = ext_id = avatar = None
+    if provider == "discord":
+        username = (meta.get("username") or meta.get("preferred_username")
+                    or meta.get("global_name") or meta.get("name"))
+        ext_id = meta.get("id") or meta.get("sub")
+        avatar = meta.get("avatar") or meta.get("avatar_url") or meta.get("picture")
+        if avatar and not avatar.startswith("http") and ext_id:
+            avatar = f"https://cdn.discordapp.com/avatars/{ext_id}/{avatar}.png"
+    else:
+        username = meta.get("preferred_username") or meta.get("name")
+        ext_id = meta.get("sub") or meta.get("id")
+        avatar = meta.get("avatar_url") or meta.get("picture") or meta.get("avatar")
+    if not username and email:
+        username = email.split("@", 1)[0]
+    if ext_id is not None and not isinstance(ext_id, str):
+        ext_id = str(ext_id)
+    return username, ext_id, avatar
+
+
+def oauth_callback(provider: str = "discord", code: str = None, redirect_uri: str = None,
+                   code_verifier: str = None) -> Tuple[Optional[str], ...]:
     """Tauscht den OAuth-Code gegen eine Supabase-Session und gibt
-    (auth_uid, email, username, discord_id, discord_avatar) zurueck.
-    discord_avatar ist eine vollqualifizierte URL (CDN-Link bei Hash-only).
+    (auth_uid, email, username, ext_id, avatar) zurueck.
+    avatar ist eine vollqualifizierte URL (CDN-Link bei Hash-only).
     None bei Fehler.
     """
+    if provider not in OAUTH_PROVIDERS:
+        raise AuthError(f"Unbekannter OAuth-Provider: {provider}")
     try:
         rc = redirect_uri or os.getenv("SUPABASE_REDIRECT_URI", "")
         params = {"auth_code": code, "redirect_to": rc}
@@ -128,16 +157,18 @@ def discord_oauth_callback(code: str, redirect_uri: str = None, code_verifier: s
         user = resp.user
         if not user:
             return None, None, None, None, None
-        meta = user.user_metadata or {}
         email = user.email
-        username = (meta.get("username") or meta.get("preferred_username")
-                    or meta.get("global_name") or meta.get("name"))
-        if not username and email:
-            username = email.split("@", 1)[0]
-        discord_id = meta.get("id") or meta.get("sub")
-        avatar = meta.get("avatar") or meta.get("avatar_url") or meta.get("picture")
-        if avatar and not avatar.startswith("http") and discord_id:
-            avatar = f"https://cdn.discordapp.com/avatars/{discord_id}/{avatar}.png"
-        return user.id, email, username, discord_id, avatar
+        username, ext_id, avatar = _extract_identity(provider, user.user_metadata or {}, email)
+        return user.id, email, username, ext_id, avatar
     except Exception as e:
         raise AuthError(str(e)) from e
+
+
+def discord_oauth_redirect(provider: str = "discord", redirect_uri: str = None) -> Tuple[str, str]:
+    """Kompatibilitaets-Wrapper fuer den Discord-Flow."""
+    return oauth_redirect("discord", redirect_uri)
+
+
+def discord_oauth_callback(code: str, redirect_uri: str = None, code_verifier: str = None) -> Tuple[Optional[str], ...]:
+    """Kompatibilitaets-Wrapper fuer den Discord-Flow."""
+    return oauth_callback("discord", code, redirect_uri, code_verifier)

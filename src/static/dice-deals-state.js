@@ -20,6 +20,19 @@ function avatarContent(p) {
     return (p && p.avatar_emoji) || "";
 }
 
+/* CSS-Hintergrund für einen Avatar je nach gespeichertem Stil.
+ * Identisch in dashboard.html (inline) gepflegt – dort lädt state.js nicht. */
+function avatarBgStyle(color, style) {
+    const c = color || "#3b82f6";
+    switch (style) {
+        case "horizontal": return `linear-gradient(90deg, ${c}, ${c}dd)`;
+        case "vertical": return `linear-gradient(180deg, ${c}, ${c}dd)`;
+        case "radial": return `radial-gradient(circle at 30% 30%, ${c}f2, ${c})`;
+        case "solid": return c;
+        default: return `linear-gradient(135deg, ${c}, ${c}dd)`;
+    }
+}
+
 /* ── Globaler Zustand ───────────────────────────────────── */
 let GS = null;
 let IS_HOST = false;
