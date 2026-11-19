@@ -30,8 +30,19 @@
         .builder-styles { width: 240px; }
         .builder-styles .style-grid { grid-template-columns: repeat(2, 1fr); }
         @media (max-width: 560px) { .builder-top { flex-direction: column; } .builder-styles { width: 100%; } }
-        .avatar-preview { width: 180px; height: 180px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 84px; border: 3px solid rgba(255,255,255,.1); transition: all .3s; overflow: hidden; }
+        .avatar-preview { width: 220px; height: 220px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 100px; border: 3px solid rgba(255,255,255,.1); transition: all .3s; overflow: hidden; }
         .avatar-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .size-check { display: flex; align-items: flex-end; gap: 18px; flex-wrap: wrap; padding: 12px 14px; background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; }
+        .size-item { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+        .size-avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 2px solid rgba(255,255,255,.08); }
+        .size-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .size-label { font-size: 10px; color: var(--text2); text-align: center; }
+        .profile-preview { display: flex; gap: 14px; align-items: flex-start; background: var(--bg3); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+        .pp-avatar { border-radius: 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; border: 2px solid rgba(255,255,255,.1); flex-shrink: 0; }
+        .pp-avatar img { width: 100%; height: 100%; object-fit: cover; display: block; }
+        .pp-name { font-size: 15px; font-weight: 700; word-break: break-word; }
+        .pp-status { font-size: 12px; color: var(--text2); margin-top: 2px; word-break: break-word; }
+        .pp-bio { font-size: 13px; color: var(--text2); margin-top: 6px; line-height: 1.4; word-break: break-word; white-space: pre-wrap; }
         .hint { font-size: 11px; color: var(--text2); text-align: center; margin-top: 10px; }
         .section-label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--text2); margin: 14px 0 8px; }
         .emoji-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 6px; }
@@ -132,6 +143,13 @@
             </div>
         </div>
         <div class="hint">Vorschau aktualisiert sich beim Auswaehlen</div>
+        <div class="section-label">Groessencheck</div>
+        <div class="size-check">
+            <div class="size-item"><div class="size-avatar" data-size="34"></div><span class="size-label">34px · Freundeliste</span></div>
+            <div class="size-item"><div class="size-avatar" data-size="48"></div><span class="size-label">48px · Spieler-Slot</span></div>
+            <div class="size-item"><div class="size-avatar" data-size="52"></div><span class="size-label">52px · Kopfzeile</span></div>
+            <div class="size-item"><div class="size-avatar" data-size="80"></div><span class="size-label">80px · Profil-Fenster</span></div>
+        </div>
         <div class="section-label">Emoji</div>
         <div class="emoji-grid" id="emoji-grid"></div>
         <div class="section-label">Farbe</div>
@@ -139,8 +157,21 @@
         <div class="section-label">Discord-Profilbild</div>
         <div id="discord-avatar-section"></div>
         <div class="card-actions">
-            <button class="btn primary" onclick="saveAvatar()">Avatar speichern</button>
-            <span class="flash" id="avatar-flash"></span>
+            <button class="btn primary" id="avatar-save-btn" onclick="saveAvatar()">Avatar speichern</button>
+            <span class="flash" id="avatar-flash" role="status" aria-live="polite"></span>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-label">Vorschau</div>
+        <h2 class="card-title">So sehen dich andere</h2>
+        <p class="card-desc">Genau so erscheint dein Profil fuer Freunde und andere Spieler.</p>
+        <div class="profile-preview">
+            <div class="pp-avatar" id="pp-avatar"></div>
+            <div class="pp-info">
+                <div class="pp-name" id="pp-username"></div>
+                <div class="pp-status" id="pp-status"></div>
+                <div class="pp-bio" id="pp-bio"></div>
+            </div>
         </div>
     </div>
     <div class="card">
@@ -153,8 +184,8 @@
         <div class="section-label">Status-Text</div>
         <input class="text-input" id="profile-status-input" maxlength="60" placeholder="Was machst du gerade?">
         <div class="card-actions">
-            <button class="btn primary" onclick="saveProfile()">Speichern</button>
-            <span class="flash" id="profile-flash"></span>
+            <button class="btn primary" id="profile-save-btn" onclick="saveProfile()">Speichern</button>
+            <span class="flash" id="profile-flash" role="status" aria-live="polite"></span>
         </div>
     </div>
 
@@ -285,12 +316,43 @@
         }
     }
 
+    function escapeHtml(s) {
+        return String(s == null ? "" : s).replace(/[&<>"']/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]));
+    }
+
+    function paintAvatar(el, size, emoji, url, color, style) {
+        if (!el) return;
+        el.style.width = size + "px";
+        el.style.height = size + "px";
+        el.style.fontSize = Math.round(size * 0.52) + "px";
+        if (url) {
+            el.style.background = "transparent";
+            el.innerHTML = `<img src="${escapeHtml(url)}" alt="Avatar">`;
+        } else {
+            el.textContent = emoji;
+            el.style.background = avatarBgStyle(color, style);
+        }
+    }
+
     function flash(id, msg, ok) {
         const el = document.getElementById(id);
         if (!el) return;
         el.textContent = msg;
         el.className = "flash " + (ok ? "ok" : "err");
         setTimeout(() => { el.textContent = ""; }, 3000);
+    }
+
+    function setSaving(buttonId, saving, label) {
+        const button = document.getElementById(buttonId);
+        if (!button) return;
+        if (saving) {
+            button.dataset.label = button.textContent;
+            button.textContent = "Wird gespeichert…";
+            button.disabled = true;
+        } else {
+            button.textContent = button.dataset.label || label;
+            button.disabled = false;
+        }
     }
 
     function renderEmojiGrid() {
@@ -328,14 +390,27 @@
         });
     }
     function updatePreview() {
-        const preview = document.getElementById("avatar-preview");
-        if (selAvatarUrl) {
-            preview.style.background = "transparent";
-            preview.innerHTML = `<img src="${selAvatarUrl}" alt="Avatar">`;
-        } else {
-            preview.textContent = selEmoji;
-            preview.style.background = avatarBgStyle(selColor, selAvatarStyle);
-        }
+        paintAvatar(document.getElementById("avatar-preview"), 220, selEmoji, selAvatarUrl, selColor, selAvatarStyle);
+        document.querySelectorAll(".size-avatar").forEach(el => {
+            paintAvatar(el, parseInt(el.dataset.size, 10), selEmoji, selAvatarUrl, selColor, selAvatarStyle);
+        });
+        updateProfilePreview();
+    }
+
+    function updateProfilePreview() {
+        paintAvatar(document.getElementById("pp-avatar"), 52, selEmoji, selAvatarUrl, selColor, selAvatarStyle);
+        const nameInput = document.getElementById("profile-username-input");
+        const bioInput = document.getElementById("profile-bio-input");
+        const statusInput = document.getElementById("profile-status-input");
+        const name = (nameInput && nameInput.value.trim()) || {{ username | tojson }};
+        const status = (statusInput && statusInput.value.trim()) || "";
+        const bio = (bioInput && bioInput.value.trim()) || "";
+        const nameEl = document.getElementById("pp-username");
+        const statusEl = document.getElementById("pp-status");
+        const bioEl = document.getElementById("pp-bio");
+        if (nameEl) nameEl.textContent = name || "—";
+        if (statusEl) { statusEl.textContent = status; statusEl.style.display = status ? "" : "none"; }
+        if (bioEl) { bioEl.textContent = bio; bioEl.style.display = bio ? "" : "none"; }
     }
 
     function renderDiscordAvatarOption() {
@@ -368,14 +443,11 @@
     }
 
     async function saveAvatar() {
-        const nameInput = document.getElementById("profile-username-input");
-        const newName = nameInput ? nameInput.value.trim() : {{ username | tojson }};
-        if (newName.length < 3 || newName.length > 20) {
-            alert("Bitte waehle einen Benutzernamen mit 3-20 Zeichen.");
-            return;
-        }
+        // Der Avatar ist unabhängig vom Profilnamen. So kann ein Avatar auch
+        // gespeichert werden, während der Profilbereich noch geladen wird.
+        setSaving("avatar-save-btn", true, "Avatar speichern");
         try {
-            const payload = { emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null, avatar_style: selAvatarStyle, username: newName };
+            const payload = { emoji: selEmoji, color: selColor, avatar_url: selAvatarUrl || null, avatar_style: selAvatarStyle };
             const res = await fetch("/api/user/avatar", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
@@ -387,10 +459,13 @@
                 return;
             }
             flash("avatar-flash", "Avatar gespeichert", true);
-            if (data.username) {
-                document.getElementById("profile-username-input").value = data.username;
-            }
-        } catch(e) { console.error(e); flash("avatar-flash", "Speichern fehlgeschlagen", false); }
+            updateProfilePreview();
+        } catch(e) {
+            console.error(e);
+            flash("avatar-flash", "Netzwerkfehler – bitte erneut versuchen", false);
+        } finally {
+            setSaving("avatar-save-btn", false, "Avatar speichern");
+        }
     }
 
     async function saveProfile() {
@@ -401,6 +476,7 @@
             flash("profile-flash", "Benutzername 3-20 Zeichen", false);
             return;
         }
+        setSaving("profile-save-btn", true, "Speichern");
         try {
             const res = await fetch("/api/user/profile", {
                 method: "POST",
@@ -411,7 +487,13 @@
             if (!res.ok) { flash("profile-flash", data.error || "Speichern fehlgeschlagen", false); return; }
             flash("profile-flash", "Profil aktualisiert", true);
             if (data.username) document.getElementById("profile-username-input").value = data.username;
-        } catch(e) { console.error(e); flash("profile-flash", "Speichern fehlgeschlagen", false); }
+            updateProfilePreview();
+        } catch(e) {
+            console.error(e);
+            flash("profile-flash", "Netzwerkfehler – bitte erneut versuchen", false);
+        } finally {
+            setSaving("profile-save-btn", false, "Speichern");
+        }
     }
 
     async function saveEmail() {
@@ -600,6 +682,7 @@
             }
             renderConnections();
             renderSessions();
+            updateProfilePreview();
         } catch(e) { console.error(e); }
     }
 
@@ -610,6 +693,10 @@
         renderColorGrid();
         renderStyleGrid();
         updatePreview();
+        ["profile-username-input", "profile-bio-input", "profile-status-input"].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener("input", updateProfilePreview);
+        });
     }
 </script>
 </body>

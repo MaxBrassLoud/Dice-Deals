@@ -41,13 +41,13 @@ USER_COLUMNS = (
 AVATAR_STYLES = ("diagonal", "horizontal", "vertical", "radial", "solid")
 
 
-def _linked_accounts_from(row):
-    """Liest linked_accounts (Index 24) als Liste; fehlende Spalte -> []."""
-    if not row or len(row) <= 24 or not row[24]:
+def _linked_accounts_from(raw):
+    """Liest einen linked_accounts-Wert (JSON-Text) als Liste; leerer/ungültiger Wert -> []."""
+    if not raw:
         return []
     try:
         import json as _json
-        value = _json.loads(row[24])
+        value = _json.loads(raw)
         return value if isinstance(value, list) else []
     except (ValueError, TypeError):
         return []
@@ -234,8 +234,9 @@ def update_user_avatar(user_id, avatar_emoji, avatar_color, avatar_url=None, ava
     with get_connection() as conn:
         with conn.cursor() as c:
             c.execute(sql, params)
+            updated = c.rowcount
         conn.commit()
-        return c.rowcount > 0
+        return updated > 0
 
 
 def update_user_bio_status(user_id, bio, status_text):
@@ -243,8 +244,9 @@ def update_user_bio_status(user_id, bio, status_text):
         with conn.cursor() as c:
             c.execute("UPDATE users SET bio = %s, status_text = %s WHERE id = %s",
                       (bio, status_text, user_id))
+            updated = c.rowcount
         conn.commit()
-        return c.rowcount > 0
+        return updated > 0
 
 
 def update_user_privacy(user_id, show_last_seen, show_in_search, allow_friend_requests):
@@ -254,8 +256,9 @@ def update_user_privacy(user_id, show_last_seen, show_in_search, allow_friend_re
                 UPDATE users SET show_last_seen = %s, show_in_search = %s,
                        allow_friend_requests = %s WHERE id = %s
             """, (show_last_seen, show_in_search, allow_friend_requests, user_id))
+            updated = c.rowcount
         conn.commit()
-        return c.rowcount > 0
+        return updated > 0
 
 
 def update_user_password(user_id, password_hash):
@@ -316,11 +319,6 @@ def send_friend_request(user_id, friend_id):
             if existing and existing[0] == "pending":
                 c.execute("UPDATE friendships SET status = 'accepted' WHERE user_id = %s AND friend_id = %s",
                           (friend_id, user_id))
-                c.execute("""
-                    INSERT INTO friendships (user_id, friend_id, status, created_at)
-                    VALUES (%s, %s, 'accepted', %s)
-                    ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted', created_at = EXCLUDED.created_at
-                """, (user_id, friend_id, time.time()))
                 conn.commit()
                 return True, "Freundschaft angenommen"
             c.execute("""
@@ -336,17 +334,16 @@ def respond_friend_request(user_id, friend_id, accept):
     with get_connection() as conn:
         with conn.cursor() as c:
             if accept:
-                c.execute("UPDATE friendships SET status = 'accepted' WHERE user_id = %s AND friend_id = %s",
+                # Eine Freundschaft wird nur einmal gespeichert: in der Richtung
+                # der ursprünglichen Anfrage. Das macht Doppelklicks idempotent.
+                c.execute("UPDATE friendships SET status = 'accepted' WHERE user_id = %s AND friend_id = %s AND status = 'pending'",
                           (friend_id, user_id))
-                c.execute("""
-                    INSERT INTO friendships (user_id, friend_id, status, created_at)
-                    VALUES (%s, %s, 'accepted', %s)
-                    ON CONFLICT (user_id, friend_id) DO UPDATE SET status = 'accepted', created_at = EXCLUDED.created_at
-                """, (user_id, friend_id, time.time()))
+                changed = c.rowcount > 0
             else:
-                c.execute("DELETE FROM friendships WHERE user_id = %s AND friend_id = %s", (friend_id, user_id))
+                c.execute("DELETE FROM friendships WHERE user_id = %s AND friend_id = %s AND status = 'pending'", (friend_id, user_id))
+                changed = c.rowcount > 0
             conn.commit()
-    return True
+    return changed
 
 
 def remove_friend(user_id, friend_id):
@@ -373,7 +370,13 @@ def get_friends(user_id):
     friends = []
     pending_incoming = []
     pending_outgoing = []
+    seen = set()
     for r in rows:
+        # Bereits bestehende doppelte Alt-Datensätze werden nur einmal gezeigt.
+        if r[5] == "accepted" and r[0] in seen:
+            continue
+        if r[5] == "accepted":
+            seen.add(r[0])
         is_self = r[0] == user_id
         # "Zuletzt online" wird nur gezeigt, wenn der andere das erlaubt (Index 7).
         online = bool(r[7]) and (time.time() - (r[4] or 0)) < 120
@@ -441,7 +444,7 @@ def upsert_linked_account(user_id, provider, ext_id, username, avatar):
         with conn.cursor() as c:
             c.execute("SELECT linked_accounts FROM users WHERE id = %s", (user_id,))
             row = c.fetchone()
-            accounts = _linked_accounts_from(row) if row else []
+            accounts = _linked_accounts_from(row[0]) if row else []
             accounts = [a for a in accounts if a.get("provider") != provider]
             accounts.append({
                 "provider": provider,
@@ -461,7 +464,7 @@ def remove_linked_account(user_id, provider):
         with conn.cursor() as c:
             c.execute("SELECT linked_accounts FROM users WHERE id = %s", (user_id,))
             row = c.fetchone()
-            accounts = _linked_accounts_from(row) if row else []
+            accounts = _linked_accounts_from(row[0]) if row else []
             kept = [a for a in accounts if a.get("provider") != provider]
             removed = next((a for a in accounts if a.get("provider") == provider), None)
             c.execute("UPDATE users SET linked_accounts = %s WHERE id = %s",
@@ -475,7 +478,7 @@ def get_linked_accounts(user_id):
         with conn.cursor() as c:
             c.execute("SELECT linked_accounts FROM users WHERE id = %s", (user_id,))
             row = c.fetchone()
-    return _linked_accounts_from(row) if row else []
+    return _linked_accounts_from(row[0]) if row else []
 
 
 def link_oauth_identity(user_id, provider, auth_uid, ext_id, username, avatar):
@@ -528,8 +531,9 @@ def delete_other_sessions(user_id, current_token):
         with conn.cursor() as c:
             c.execute("DELETE FROM auth_tokens WHERE user_id = %s AND token != %s",
                       (user_id, current_token))
+            deleted = c.rowcount
         conn.commit()
-        return c.rowcount
+        return deleted
 
 
 def delete_user(user_id):
@@ -542,8 +546,9 @@ def delete_user(user_id):
                       (user_id, user_id))
             c.execute("DELETE FROM auth_tokens WHERE user_id = %s", (user_id,))
             c.execute("DELETE FROM users WHERE id = %s", (user_id,))
+            deleted = c.rowcount
         conn.commit()
-        return c.rowcount > 0
+        return deleted > 0
 
 
 # ---------------------------------------------------------------------------
@@ -662,8 +667,9 @@ def update_user_display_name(user_id, display_name):
     with get_connection() as conn:
         with conn.cursor() as c:
             c.execute("UPDATE users SET display_name = %s WHERE id = %s", (display_name, user_id))
+            updated = c.rowcount
             conn.commit()
-        return c.rowcount > 0
+        return updated > 0
 
 
 def is_display_name_available(display_name, exclude_user_id=None):

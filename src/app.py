@@ -1,14 +1,18 @@
 import os
 import hashlib
 import json
+import logging
 import queue
 import random
+import re
 import secrets
 import string
 import threading
 import time
 import requests
 from functools import wraps
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from flask import Flask, request, jsonify, render_template, redirect, session, g, make_response
 from werkzeug.security import check_password_hash, generate_password_hash
 from database import (create_database, create_user, get_user_by_username, get_user_by_email,
@@ -38,6 +42,32 @@ load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.getenv("SECRET_KEY", os.urandom(32))
+
+
+def configure_logging():
+    """Schreibt Diagnose-Logs dauerhaft, ohne Profilinhalte zu speichern."""
+    log_dir = Path(os.getenv("APP_LOG_DIR", Path(__file__).resolve().parent.parent / "logs"))
+    log_dir.mkdir(parents=True, exist_ok=True)
+    if any(getattr(handler, "name", "") == "dice-deals-file" for handler in app.logger.handlers):
+        return
+    handler = RotatingFileHandler(log_dir / "dice-deals.log", maxBytes=2_000_000, backupCount=5,
+                                  encoding="utf-8")
+    handler.name = "dice-deals-file"
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)s %(name)s %(message)s"))
+    handler.setLevel(logging.INFO)
+    app.logger.addHandler(handler)
+    app.logger.setLevel(logging.INFO)
+
+
+configure_logging()
+
+
+def log_profile_save(event, request_id, *, level="info", **details):
+    """Protokolliert ausschließlich technische Metadaten, nie Profil-/Geheimdaten."""
+    log = getattr(app.logger, level)
+    log("profile_save event=%s request_id=%s user_id=%s details=%s", event, request_id,
+        session.get("user_id", "anonymous"), details)
 
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_REDIRECT_URI = os.getenv("DISCORD_REDIRECT_URI")
@@ -165,6 +195,24 @@ def validate_display_name(username, exclude_user_id=None):
     return username, None
 
 
+def profile_display_name(user):
+    """Gibt den bearbeitbaren Namen zurück, ohne alte Discord-#Tags."""
+    display_name = user[15] if len(user) > 15 and user[15] else user[1]
+    return re.sub(r"#\d{1,4}$", "", display_name or "").strip()
+
+
+def public_linked_accounts(user_id):
+    """Bereitet verknüpfte Konten für die Anzeige auf (ohne Legacy-Discord-Tag)."""
+    accounts = get_linked_accounts(user_id)
+    result = []
+    for account in accounts:
+        entry = dict(account)
+        if entry.get("provider") == "discord":
+            entry["username"] = re.sub(r"#\d{1,4}$", "", entry.get("username") or "").strip()
+        result.append(entry)
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Persistence helpers
 # ---------------------------------------------------------------------------
@@ -272,8 +320,7 @@ def set_session_user(user):
     previous_guest_id = session.get("user_id") if session.get("is_guest") else None
     previous_room = session.get("room_code") if previous_guest_id else None
     session["user_id"] = user[0]
-    display_name = user[15] if len(user) > 15 and user[15] else None
-    session["username"] = display_name or user[1]
+    session["username"] = profile_display_name(user)
     session["avatar_emoji"] = user[7] if len(user) > 7 and user[7] else "\U0001F3B2"
     session["avatar_color"] = user[8] if len(user) > 8 and user[8] else "#3b82f6"
     session["avatar_url"] = user[14] if len(user) > 14 and user[14] else None
@@ -409,6 +456,56 @@ def login_page():
     return render_template("login.html")
 
 
+@app.route('/verify-email')
+def verify_email_page():
+    if not session.get("verification_email"):
+        return redirect("/login")
+    return render_template("verify-email.html", email=session["verification_email"])
+
+
+@app.route('/api/v1/verify-email', methods=['POST'])
+def verify_email():
+    email = session.get("verification_email")
+    code = (request.get_json(silent=True) or {}).get("code", "")
+    app.logger.info(
+        "VERIFY DEBUG | type=%s | length=%s | isdigit=%s",
+        type(code).__name__,
+        len(code) if isinstance(code, str) else "N/A",
+        code.isdigit() if isinstance(code, str) else "N/A"
+    )
+    if not email:
+        return jsonify({"error": "Keine ausstehende Bestätigung"}), 400
+    if not isinstance(code, str) or not code.isdigit() or len(code) != 8:
+        return jsonify({"error": "Bitte gib den achtstelligen Code ein"}), 400
+    try:
+        supabase_client.verify_email_code(email, code)
+    except supabase_client.AuthError as e:
+        app.logger.error("E-Mail-Code-Verifizierung fehlgeschlagen: %s", e)
+        return jsonify({"error": "Code ungültig oder abgelaufen"}), 400
+    user = get_user_by_email(email)
+    if not user:
+        return jsonify({"error": "Konto nicht gefunden"}), 404
+    session.pop("verification_email", None)
+    set_session_user(user)
+    token = create_auth_token(user[0])
+    response = jsonify({"message": "E-Mail bestätigt"})
+    set_remember_cookie(response, token)
+    return response
+
+
+@app.route('/api/v1/verify-email/resend', methods=['POST'])
+def resend_verify_email():
+    email = session.get("verification_email")
+    if not email:
+        return jsonify({"error": "Keine ausstehende Bestätigung"}), 400
+    try:
+        supabase_client.resend_email_confirmation(email)
+    except supabase_client.AuthError as e:
+        app.logger.error("E-Mail-Code erneut senden fehlgeschlagen: %s", e)
+        return jsonify({"error": "Code konnte nicht erneut gesendet werden"}), 400
+    return jsonify({"message": "Ein neuer Code wurde gesendet"})
+
+
 @app.route('/api/v1/guest', methods=['POST'])
 def continue_as_guest():
     """Erstellt eine rein sitzungsbasierte Gastidentität erst nach ausdrücklicher Auswahl."""
@@ -468,14 +565,15 @@ def register():
     user_id = create_user_id()
     if supabase_client.is_configured():
         try:
-            auth_uid = supabase_client.create_auth_user(email, password, username)
+            auth_uid = supabase_client.register_auth_user(email, password, username)
         except supabase_client.AuthError as e:
+            app.logger.error("Supabase Registrierung fehlgeschlagen: %s", e)
             msg = str(e).lower()
             if any(k in msg for k in ("already", "exists", "registered", "duplicate")):
                 return jsonify({"error": "Benutzername oder E-Mail bereits vergeben"}), 409
             if "password" in msg:
                 return jsonify({"error": "Passwort ist zu schwach"}), 400
-            return jsonify({"error": "Registrierung fehlgeschlagen"}), 400
+            return jsonify({"error": f"Registrierung fehlgeschlagen: {e}"}), 400
         success = create_user(user_id, username, None, email, auth_provider="supabase", auth_uid=auth_uid)
         if not success:
             supabase_client.delete_auth_user(auth_uid)
@@ -484,7 +582,12 @@ def register():
         success = create_user(user_id, username, hash_password(password), email)
         if not success:
             return jsonify({"error": "Benutzername oder E-Mail bereits vergeben"}), 409
-    # Ein neu erstelltes Konto ist sofort nutzbar; kein zweiter Login-Request nötig.
+    # Der öffentliche Supabase-Sign-up-Flow sendet bei aktivierter
+    # E-Mail-Bestätigung den OTP-Code. Erst danach wird angemeldet.
+    if supabase_client.is_configured():
+        session["verification_email"] = email
+        return jsonify({"message": "Bestätigungscode gesendet", "verification_required": True}), 201
+    # Im lokalen Fallback bleibt ein neu erstelltes Konto sofort nutzbar.
     user = merge_guest_profile_into_user(user_id) or get_user_by_id(user_id)
     set_session_user(user)
     token = create_auth_token(user_id)
@@ -507,6 +610,13 @@ def login():
     if provider == "discord":
         return jsonify({"error": "Bitte mit Discord anmelden"}), 401
     if provider == "supabase":
+        try:
+            confirmed = supabase_client.is_email_confirmed(user[17])
+        except supabase_client.AuthError:
+            return jsonify({"error": "Bestätigungsstatus konnte nicht geprüft werden"}), 503
+        if not confirmed:
+            session["verification_email"] = user[3]
+            return jsonify({"error": "E-Mail-Adresse noch nicht bestätigt", "verification_required": True}), 403
         if not supabase_client.verify_password(user[3], password):
             return jsonify({"error": "Ungueltige Anmeldedaten"}), 401
     else:
@@ -1107,7 +1217,7 @@ def user_profile():
         return jsonify({"error": "Benutzer nicht gefunden"}), 404
     return jsonify({
         "user_id": user[0],
-        "username": user[1],
+        "username": profile_display_name(user),
         "email": user[3],
         "avatar_emoji": user[7] if len(user) > 7 and user[7] else "🎲",
         "avatar_color": user[8] if len(user) > 8 and user[8] else "#3b82f6",
@@ -1118,9 +1228,9 @@ def user_profile():
         "show_last_seen": True if len(user) <= 21 or user[21] is None else bool(user[21]),
         "show_in_search": True if len(user) <= 22 or user[22] is None else bool(user[22]),
         "allow_friend_requests": True if len(user) <= 23 or user[23] is None else bool(user[23]),
-        "linked_accounts": get_linked_accounts(user[0]),
+        "linked_accounts": public_linked_accounts(user[0]),
         "display_name": user[15] if len(user) > 15 else None,
-        "discord_username": user[12] if len(user) > 12 else None,
+        "discord_username": re.sub(r"#\d{1,4}$", "", user[12] or "").strip() if len(user) > 12 else None,
         "discord_avatar": user[11] if len(user) > 11 else None,
         "discord_id": user[10] if len(user) > 10 else None,
         "auth_provider": auth_provider_of(user),
@@ -1131,24 +1241,43 @@ def user_profile():
 @app.route('/api/user/profile', methods=['POST'])
 @login_required
 def update_profile():
+    request_id = secrets.token_hex(4)
     if session.get("is_guest"):
+        log_profile_save("profile_rejected_guest", request_id, level="warning")
         return jsonify({"error": "Gaeste haben kein Konto"}), 403
     data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict) or not isinstance(data.get("username", ""), str):
+        log_profile_save("profile_rejected_payload", request_id, level="warning")
+        return jsonify({"error": "Ungueltige Profildaten"}), 400
     username = data.get("username", "").strip()
-    bio = (data.get("bio") or "").strip()[:160]
-    status_text = (data.get("status_text") or "").strip()[:60]
+    bio = (data.get("bio") or "").strip()[:160] if isinstance(data.get("bio"), (str, type(None))) else ""
+    status_text = (data.get("status_text") or "").strip()[:60] if isinstance(data.get("status_text"), (str, type(None))) else ""
     if not username:
         return jsonify({"error": "Benutzername darf nicht leer sein"}), 400
-    username, name_error = validate_display_name(username, session["user_id"])
+    try:
+        username, name_error = validate_display_name(username, session["user_id"])
+    except Exception:
+        app.logger.exception("profile_save event=profile_name_check_failed request_id=%s user_id=%s",
+                             request_id, session["user_id"])
+        return jsonify({"error": f"Fehler beim Speichern (Code: {request_id})"}), 500
     if name_error:
         return jsonify({"error": name_error}), 400
     if username != session.get("username") and session.get("room_code"):
         return jsonify({"error": "Aendere deinen Namen bitte, nachdem du den Spielraum verlassen hast"}), 409
-    if not update_user_display_name(session["user_id"], username):
-        return jsonify({"error": "Fehler beim Speichern"}), 500
-    update_user_bio_status(session["user_id"], bio or None, status_text or None)
+    try:
+        if not update_user_display_name(session["user_id"], username):
+            log_profile_save("profile_display_name_not_updated", request_id, level="error")
+            return jsonify({"error": f"Fehler beim Speichern (Code: {request_id})"}), 500
+        if not update_user_bio_status(session["user_id"], bio or None, status_text or None):
+            log_profile_save("profile_bio_not_updated", request_id, level="error")
+            return jsonify({"error": f"Fehler beim Speichern (Code: {request_id})"}), 500
+    except Exception:
+        app.logger.exception("profile_save event=profile_database_write_failed request_id=%s user_id=%s",
+                             request_id, session["user_id"])
+        return jsonify({"error": f"Fehler beim Speichern (Code: {request_id})"}), 500
     session["username"] = username
     session["status_text"] = status_text or None
+    log_profile_save("profile_saved", request_id, changed_bio=bool(bio), changed_status=bool(status_text))
     return jsonify({"message": "Profil aktualisiert", "username": username, "bio": bio or None,
                     "status_text": status_text or None})
 
@@ -1156,12 +1285,28 @@ def update_profile():
 @app.route('/api/user/avatar', methods=['POST'])
 @login_required
 def set_avatar():
+    request_id = secrets.token_hex(4)
     data = request.get_json(silent=True) or {}
-    emoji = data.get("emoji", "🎲").strip()
-    color = data.get("color", "#3b82f6").strip()
-    avatar_url = (data.get("avatar_url") or "").strip() or None
-    avatar_style = (data.get("avatar_style") or "diagonal").strip()
-    username = data.get("username", session.get("username", "")).strip()
+    if not isinstance(data, dict):
+        log_profile_save("avatar_rejected_payload", request_id, level="warning")
+        return jsonify({"error": "Ungueltige Profildaten"}), 400
+
+    # API-Aufrufer koennen optional Felder auslassen (z. B. beim reinen
+    # Avatar-Speichern). Falsche JSON-Typen duerfen nicht zu einem 500er durch
+    # .strip() fuehren, sondern bekommen eine verständliche 400-Antwort.
+    def text(value, fallback=""):
+        if value is None:
+            return fallback
+        return value.strip() if isinstance(value, str) else None
+
+    emoji = text(data.get("emoji"), "🎲")
+    color = text(data.get("color"), "#3b82f6")
+    avatar_url = text(data.get("avatar_url")) or None
+    avatar_style = text(data.get("avatar_style"), "diagonal")
+    username = text(data.get("username"), session.get("username", ""))
+    if None in (emoji, color, avatar_style, username):
+        log_profile_save("avatar_rejected_field_type", request_id, level="warning")
+        return jsonify({"error": "Ungueltige Profildaten"}), 400
     if not emoji or len(emoji) > 4:
         return jsonify({"error": "Ungueltiges Emoji"}), 400
     if not color or len(color) > 20:
@@ -1186,16 +1331,29 @@ def set_avatar():
         }), 200
     if username != session.get("username") and session.get("room_code"):
         return jsonify({"error": "Aendere deinen Namen bitte, nachdem du den Spielraum verlassen hast"}), 409
-    success = update_user_avatar(session["user_id"], emoji, color, avatar_url, avatar_style)
+    try:
+        success = update_user_avatar(session["user_id"], emoji, color, avatar_url, avatar_style)
+    except Exception:
+        app.logger.exception("profile_save event=avatar_database_write_failed request_id=%s user_id=%s",
+                             request_id, session["user_id"])
+        return jsonify({"error": f"Fehler beim Speichern (Code: {request_id})"}), 500
     if not success:
-        return jsonify({"error": "Fehler beim Speichern"}), 500
+        log_profile_save("avatar_not_updated", request_id, level="error")
+        return jsonify({"error": f"Fehler beim Speichern (Code: {request_id})"}), 500
     session["avatar_emoji"] = emoji
     session["avatar_color"] = color
     session["avatar_url"] = avatar_url
     session["avatar_style"] = avatar_style
     if username != session.get("username"):
-        update_user_display_name(session["user_id"], username)
+        try:
+            update_user_display_name(session["user_id"], username)
+        except Exception:
+            app.logger.exception("profile_save event=avatar_name_write_failed request_id=%s user_id=%s",
+                                 request_id, session["user_id"])
+            return jsonify({"error": f"Avatar gespeichert, Name fehlgeschlagen (Code: {request_id})"}), 500
         session["username"] = username
+    log_profile_save("avatar_saved", request_id, avatar_style=avatar_style,
+                     uses_discord_avatar=bool(avatar_url))
     return jsonify({"message": "Profil aktualisiert", "username": session["username"],
                     "avatar_emoji": emoji, "avatar_color": color, "avatar_url": avatar_url,
                     "avatar_style": avatar_style})
@@ -1421,7 +1579,8 @@ def friends_respond():
     accept = data.get("accept", False)
     if not friend_id:
         return jsonify({"error": "Benutzer-ID fehlt"}), 400
-    respond_friend_request(session["user_id"], friend_id, accept)
+    if not respond_friend_request(session["user_id"], friend_id, accept):
+        return jsonify({"error": "Diese Anfrage wurde bereits bearbeitet"}), 409
     return jsonify({"message": "Anfrage angenommen" if accept else "Anfrage abgelehnt"})
 
 
@@ -1482,7 +1641,7 @@ def discord_info():
     has_discord = bool(user and len(user) > 10 and user[10])
     return jsonify({
         "has_discord_account": has_discord,
-        "discord_username": user[12] if user and len(user) > 12 else None,
+        "discord_username": re.sub(r"#\d{1,4}$", "", user[12] or "").strip() if user and len(user) > 12 else None,
         "discord_avatar": user[11] if user and len(user) > 11 else None,
         "discord_id": user[10] if user and len(user) > 10 else None,
     })

@@ -1359,15 +1359,21 @@
         }
     }
 
-    async function respondFriend(friendId, accept) {
+    async function respondFriend(friendId, accept, button) {
+        if (button && button.disabled) return;
+        if (button) { button.disabled = true; button.textContent = "Wird gespeichert…"; }
         try {
-            await fetch("/api/friends/respond", {
+            const res = await fetch("/api/friends/respond", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ friend_id: friendId, accept })
             });
+            if (!res.ok && res.status !== 409) throw new Error("Freundschaftsanfrage fehlgeschlagen");
             loadFriends();
-        } catch(e) { console.error(e); }
+        } catch(e) {
+            console.error(e);
+            if (button) { button.disabled = false; button.textContent = accept ? "Annehmen" : "Ablehnen"; }
+        }
     }
 
     async function removeFriend(friendId) {
@@ -1446,8 +1452,8 @@
                     <div class="friend-status">Moechte dich als Freund</div>
                 </div>
                 <div class="friend-actions">
-                    <button class="friend-btn accept" onclick="respondFriend('${u.id}', true)">Annehmen</button>
-                    <button class="friend-btn danger" onclick="respondFriend('${u.id}', false)">Ablehnen</button>
+                    <button class="friend-btn accept" onclick="respondFriend('${u.id}', true, this)">Annehmen</button>
+                    <button class="friend-btn danger" onclick="respondFriend('${u.id}', false, this)">Ablehnen</button>
                 </div>
             `;
             list.appendChild(el);

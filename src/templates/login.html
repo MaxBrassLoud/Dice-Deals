@@ -809,6 +809,10 @@
                     window.location.href = '/';
                 } else {
                     const data = await res.json().catch(() => ({}));
+                    if (data.verification_required) {
+                        window.location.href = '/verify-email';
+                        return;
+                    }
                     loginGlobalMsg.textContent = data.error || 'Login fehlgeschlagen. Pruefe deine Zugangsdaten.';
                     loginGlobalMsg.classList.add('error');
                     loginGlobalMsg.style.display = 'block';
@@ -848,7 +852,7 @@
                 });
                 const data = await res.json().catch(() => ({}));
                 if (res.ok) {
-                    window.location.href = '/';
+                    window.location.href = data.verification_required ? '/verify-email' : '/';
                 } else {
                     registerGlobalMsg.textContent = data.error || 'Registrierung fehlgeschlagen (Benutzername evtl. vergeben).';
                     registerGlobalMsg.classList.add('error');

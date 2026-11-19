@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>E-Mail bestätigen · Dice Deals</title>
+    <style>
+        body { margin:0; min-height:100vh; display:grid; place-items:center; padding:24px; font-family:Inter,Arial,sans-serif; background:#0a0e1a; color:#f1f5f9; }
+        main { width:min(100%,420px); padding:32px; border:1px solid #334155; border-radius:18px; background:#111827; text-align:center; }
+        h1 { margin:0 0 12px; font-size:24px; } p { color:#94a3b8; line-height:1.5; }
+        input { box-sizing:border-box; width:100%; margin:18px 0 12px; padding:14px; border:1px solid #475569; border-radius:10px; background:#0a0e1a; color:#fff; font-size:24px; letter-spacing:.35em; text-align:center; }
+        button { width:100%; padding:12px; border:0; border-radius:10px; background:#3b82f6; color:#07111f; font-weight:800; cursor:pointer; } button:disabled { opacity:.55; }
+        .secondary { margin-top:10px; background:transparent; color:#93c5fd; } #message { min-height:20px; margin-top:14px; color:#fca5a5; font-size:14px; }
+    </style>
+</head>
+<body><main>
+    <h1>E-Mail bestätigen</h1>
+    <p>Wir haben einen achtstelligen Code an <strong>{{ email }}</strong> gesendet.</p>
+    <input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="8" placeholder="00000000" aria-label="Bestätigungscode">
+    <button id="verify">Code prüfen</button>
+    <button id="resend" class="secondary">Neuen Code senden</button>
+    <div id="message" role="status"></div>
+</main><script>
+const message = document.getElementById('message');
+async function request(url, body) { const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body || {})}); return [r, await r.json().catch(()=>({}))]; }
+document.getElementById('verify').onclick = async () => { const code = document.getElementById('code').value.trim(); const b = document.getElementById('verify'); b.disabled=true; const [r,d] = await request('/api/v1/verify-email',{code}); b.disabled=false; if (r.ok) location.href='/'; else message.textContent=d.error || 'Code konnte nicht geprüft werden'; };
+document.getElementById('resend').onclick = async () => { const b = document.getElementById('resend'); b.disabled=true; const [r,d] = await request('/api/v1/verify-email/resend'); message.style.color=r.ok?'#86efac':'#fca5a5'; message.textContent=d.message || d.error || 'Senden fehlgeschlagen'; setTimeout(()=>b.disabled=false, 60000); };
+</script></body></html>
