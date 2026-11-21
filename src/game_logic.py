@@ -911,7 +911,13 @@ class Game:
     def _check_true_bankruptcy(self, player: "Player"):
         if player.is_bankrupt:
             return
-        if self._total_asset_value(player) <= 0:
+        # Wenn das Bargeld unter 0 ist, reicht das Vorhandensein von Assets
+        # (oder ein negativer Kontostand ohne ausreichende Liquidität) für den Bankrott aus,
+        # je nachdem, wie streng du es haben willst.
+        # Wenn bei < 0 sofort Schluss sein soll, wenn Vermögen da ist (aber keine Lust zu verkaufen):
+        if player.money < 0:
+            self._declare_bankrupt(player)
+        elif self._total_asset_value(player) <= 0:
             self._declare_bankrupt(player)
 
     def _declare_bankrupt(self, player: "Player"):
